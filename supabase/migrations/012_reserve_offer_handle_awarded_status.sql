@@ -1,0 +1,13 @@
+-- =====================================================================
+-- 012_reserve_offer_handle_awarded_status.sql
+-- =====================================================================
+-- reserve_offer_for_payment now handles the `awarded` status. A project
+-- becomes `awarded` when a deal is accepted via accept_offer/accept_quote
+-- (the mobile path). If reserve_offer_for_payment is then called (e.g. the
+-- homeowner switches to web), the old code would try to mark a second
+-- offer payment_pending and trip the uq_offers_one_active_per_project
+-- index. Now: same offer -> return cleanly (checkout accepts `awarded`);
+-- different offer -> a clear, friendly error.
+-- The full function body is applied via the Supabase migration
+-- "reserve_offer_handle_awarded_status". The only change vs. migration 009
+-- is the added `if v_project.status = 'awarded' then ...` block.

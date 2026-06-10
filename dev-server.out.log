@@ -1,0 +1,20 @@
+
+> bidai@0.1.0 dev
+> next dev -p 3000
+
+  ▲ Next.js 14.2.13
+  - Local:        http://localhost:3000
+  - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.9s
+ ○ Compiling /src/middleware ...
+ ✓ Compiled /src/middleware in 1700ms (127 modules)
+ ○ Compiling / ...
+ ✓ Compiled / in 7.4s (658 modules)
+ GET / 200 in 10147ms
+ ✓ Compiled in 9.8s (439 modules)
+ ✓ Compiled in 1780ms (425 modules)
+ ✓ Compiled in 1372ms (312 modules)
+ ✓ Compiled in 899ms (312 modules)
+ ✓ Compiled in 1018ms (312 modules)

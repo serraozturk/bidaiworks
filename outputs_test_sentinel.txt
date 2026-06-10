@@ -1,0 +1,5 @@
+Test file content.
+Line 2.
+Last line ends with } closing.
+And more text after the brace, definitely not truncated.
+End.
