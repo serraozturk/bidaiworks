@@ -71,9 +71,7 @@ export default function SignupClient() {
           privacy_notice_accepted: privacyAccepted,
           legal_accepted_at: new Date().toISOString(),
         },
-        emailRedirectTo:
-          (process.env.NEXT_PUBLIC_APP_URL ?? window.location.origin) +
-          '/auth/callback',
+       emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 
