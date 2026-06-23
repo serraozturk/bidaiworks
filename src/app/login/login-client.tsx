@@ -174,15 +174,25 @@ export default function LoginClient() {
                 onChange={(e) => setEmail(e.target.value)}
               />
 
-              <Input
-                type="password"
-                name="password"
-                label="Password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="space-y-1">
+                <Input
+                  type="password"
+                  name="password"
+                  label="Password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <div className="text-right">
+                  <Link
+                    href="/forgot-password"
+                    className="text-xs font-bold text-slate-500 hover:text-[#f45112] hover:underline"
+                  >
+                    Forgot password?
+                  </Link>
+                </div>
+              </div>
 
               {error && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
