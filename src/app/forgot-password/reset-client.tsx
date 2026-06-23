@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card, CardBody } from '@/components/ui/Card';
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
+
 export default function ForgotPasswordClient() {
   const [email, setEmail] = useState('');
   const [busy, setBusy] = useState(false);
@@ -20,8 +22,8 @@ export default function ForgotPasswordClient() {
     setSent(false);
     setError(null);
 
-    const origin = window.location.origin;
-    const redirectTo = `${origin}/auth/callback?next=/auth/update-password`;
+    const base = APP_URL || window.location.origin;
+    const redirectTo = `${base}/auth/callback?next=/auth/update-password`;
     const supabase = createClient();
 
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(

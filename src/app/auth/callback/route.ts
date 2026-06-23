@@ -1,16 +1,22 @@
-/**
- * Email-confirmation / OAuth callback route.
- *
- * Handles two flows Supabase uses:
- *  1. PKCE (OAuth / magic link): ?code=xxx
- *  2. Email OTP (signup confirm, password reset): ?token_hash=xxx&type=signup|recovery
- */
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import type { EmailOtpType } from '@supabase/supabase-js';
 
+function getPublicOrigin(rawOrigin: string) {
+  return (
+    process.env.APP_URL ||
+    process.env.NEXT_PUBLIC_APP_URL ||
+    rawOrigin
+  )
+    .trim()
+    .replace(/\/$/, '');
+}
+
 export async function GET(request: Request) {
-  const { searchParams, origin } = new URL(request.url);
+  const url = new URL(request.url);
+  const { searchParams, origin: rawOrigin } = url;
+
+  const origin = getPublicOrigin(rawOrigin);
 
   const code = searchParams.get('code');
   const tokenHash = searchParams.get('token_hash');
@@ -19,16 +25,27 @@ export async function GET(request: Request) {
 
   const supabase = createClient();
 
-  // Flow 1: PKCE code exchange (OAuth, magic-link)
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+
+    if (!error) {
+      return NextResponse.redirect(`${origin}${next}`);
+    }
+
+    console.error('Auth callback code exchange error:', error);
   }
 
-  // Flow 2: Email OTP (signup confirmation, password reset)
   if (tokenHash && type) {
-    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
-    if (!error) return NextResponse.redirect(`${origin}${next}`);
+    const { error } = await supabase.auth.verifyOtp({
+      token_hash: tokenHash,
+      type,
+    });
+
+    if (!error) {
+      return NextResponse.redirect(`${origin}${next}`);
+    }
+
+    console.error('Auth callback OTP verify error:', error);
   }
 
   return NextResponse.redirect(`${origin}/login?error=callback`);

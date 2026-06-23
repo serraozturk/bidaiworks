@@ -8,6 +8,8 @@ import { Card, CardBody } from '@/components/ui/Card';
 
 type Busy = 'resend' | 'check' | 'signout' | null;
 
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL || '';
+
 export default function VerifyEmailClient({ email }: { email: string }) {
   const router = useRouter();
   const supabase = createClient();
@@ -22,11 +24,12 @@ export default function VerifyEmailClient({ email }: { email: string }) {
     setError(null);
     setSent(false);
 
+    const base = APP_URL || window.location.origin;
     const { error: resendError } = await supabase.auth.resend({
       type: 'signup',
       email,
       options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/dashboard`,
+        emailRedirectTo: `${base}/auth/callback?next=/dashboard`,
       },
     });
 

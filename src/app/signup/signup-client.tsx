@@ -71,7 +71,9 @@ export default function SignupClient() {
           privacy_notice_accepted: privacyAccepted,
           legal_accepted_at: new Date().toISOString(),
         },
-      emailRedirectTo: 'https://bidaiworks-web.hmldpk.easypanel.host/auth/callback',
+     emailRedirectTo: `${(process.env.NEXT_PUBLIC_APP_URL || window.location.origin)
+  .trim()
+  .replace(/\/$/, '')}/auth/callback`,
       },
     });
 
