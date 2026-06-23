@@ -9,6 +9,7 @@ import {
   formatWhen,
 } from '@/components/admin/ui';
 import { approveProject, rejectProject } from '@/app/admin/actions';
+import ProjectsFilterTable from './ProjectsFilterTable';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +97,20 @@ export default async function AdminProjectsPage() {
   const completedCount = rows.filter(
     (project) => project.status === 'completed',
   ).length;
+
+  const tableRows = rows.map((project) => ({
+    id: project.id,
+    title: project.title,
+    homeowner_name: profileById.get(project.homeowner_id)?.full_name ?? '—',
+    category_name: categoryById.get(project.category_id)?.name ?? 'Uncategorized',
+    status: project.status ?? 'unknown',
+    moderation_status: project.moderation_status ?? 'pending',
+    payment_status: project.payment_status ?? 'unpaid',
+    contractor_fee_status: project.contractor_fee_status ?? 'not_due',
+    offer_count: offerCount.get(project.id) ?? 0,
+    created_at: project.created_at,
+    moderation_note: project.moderation_note ?? null,
+  }));
 
   return (
     <div className="mx-auto max-w-[1320px] px-6 py-6">
@@ -209,85 +224,7 @@ export default async function AdminProjectsPage() {
         </Panel>
       </div>
 
-      <Panel title="Project registry" description={`${rows.length} total`}>
-        {rows.length === 0 ? (
-          <EmptyRow>No projects found.</EmptyRow>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[980px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-slate-100 text-[11px] font-black uppercase tracking-wide text-slate-400">
-                  <th className="px-4 py-2.5">Project</th>
-                  <th className="px-4 py-2.5">Homeowner</th>
-                  <th className="px-4 py-2.5">Category</th>
-                  <th className="px-4 py-2.5">Project status</th>
-                  <th className="px-4 py-2.5">Moderation</th>
-                  <th className="px-4 py-2.5">Payment</th>
-                  <th className="px-4 py-2.5">Contractor fee</th>
-                  <th className="px-4 py-2.5">Offers</th>
-                  <th className="px-4 py-2.5">Created</th>
-                </tr>
-              </thead>
-
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((project) => (
-                  <tr key={project.id} className="hover:bg-slate-50">
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/admin/projects/${project.id}`}
-                        className="font-bold text-slate-900 hover:text-orange-600 hover:underline"
-                      >
-                        {project.title}
-                      </Link>
-
-                      {project.moderation_note && (
-                        <p className="mt-1 max-w-xs truncate text-[11px] font-semibold text-slate-400">
-                          {project.moderation_note}
-                        </p>
-                      )}
-                    </td>
-
-                    <td className="px-4 py-3 text-slate-600">
-                      {profileById.get(project.homeowner_id)?.full_name ?? '—'}
-                    </td>
-
-                    <td className="px-4 py-3 text-slate-600">
-                      {categoryById.get(project.category_id)?.name ??
-                        'Uncategorized'}
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Pill value={project.status ?? 'unknown'} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Pill value={project.moderation_status ?? 'pending'} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Pill value={project.payment_status ?? 'unpaid'} />
-                    </td>
-
-                    <td className="px-4 py-3">
-                      <Pill
-                        value={project.contractor_fee_status ?? 'not_due'}
-                      />
-                    </td>
-
-                    <td className="px-4 py-3 font-black text-slate-900">
-                      {offerCount.get(project.id) ?? 0}
-                    </td>
-
-                    <td className="px-4 py-3 text-slate-500">
-                      {formatWhen(project.created_at)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+      <ProjectsFilterTable rows={tableRows} />
 
       {rejectedCount > 0 && (
         <div className="mt-5 rounded-xl border border-rose-100 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-700">

@@ -4,10 +4,13 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 
 interface Props {
   projectId: string;
   contractorId: string | null;
+  /** Render a compact inline button (for list views) instead of the full-size button */
+  compact?: boolean;
 }
 
 /**
@@ -18,21 +21,21 @@ interface Props {
  * - Direct chat is already unlocked at paid/in_progress.
  * - This button should not be shown before paid/in_progress, but we also guard here.
  */
-export default function MarkCompleteButton({ projectId, contractorId }: Props) {
+export default function MarkCompleteButton({ projectId, contractorId, compact = false }: Props) {
   const router = useRouter();
   const supabase = createClient();
+  const { confirm, ConfirmDialogNode } = useConfirm();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function markComplete() {
-    if (
-      !confirm(
-        'Mark this project as complete? This will close the job and allow you to leave a review.',
-      )
-    ) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Mark project as complete?',
+      message: 'This will close the job and allow you to leave a review.',
+      confirmLabel: 'Mark complete',
+    });
+    if (!ok) return;
 
     setBusy(true);
     setError(null);
@@ -60,6 +63,7 @@ export default function MarkCompleteButton({ projectId, contractorId }: Props) {
       .update({
         status: 'completed',
         payment_status: 'released',
+        completed_at: new Date().toISOString(),
       })
       .eq('id', projectId)
       .in('status', ['paid', 'in_progress']);
@@ -124,14 +128,40 @@ if (paymentReleaseError) {
     router.refresh();
   }
 
-  return (
-    <div className="flex flex-wrap items-center gap-3">
-      <Button onClick={markComplete} disabled={busy}>
-        {busy ? 'Completing...' : 'Mark project as complete'}
-      </Button>
+  if (compact) {
+    return (
+      <>
+        {ConfirmDialogNode}
+        <div className="relative">
+          <button
+            type="button"
+            onClick={markComplete}
+            disabled={busy}
+            className="inline-flex h-9 w-full items-center justify-center rounded-xl bg-emerald-600 px-3 text-xs font-black text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? 'Completing…' : 'Complete'}
+          </button>
+          {error && (
+            <span className="absolute left-0 top-full mt-1 text-[10px] font-bold text-red-600">
+              {error}
+            </span>
+          )}
+        </div>
+      </>
+    );
+  }
 
-      {error && <span className="text-xs font-bold text-red-600">{error}</span>}
-    </div>
+  return (
+    <>
+      {ConfirmDialogNode}
+      <div className="flex flex-wrap items-center gap-3">
+        <Button onClick={markComplete} disabled={busy}>
+          {busy ? 'Completing...' : 'Mark project as complete'}
+        </Button>
+
+        {error && <span className="text-xs font-bold text-red-600">{error}</span>}
+      </div>
+    </>
   );
 }
 

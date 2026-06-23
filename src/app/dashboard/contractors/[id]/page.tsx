@@ -1,11 +1,14 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { Badge } from '@/components/ui/Badge';
 import { relativeTime } from '@/lib/utils';
-import { MakeOfferButton } from '@/components/MakeOfferButton';
+import { BudgetRequestFlow } from '@/components/BudgetRequestFlow';
 import { countUnreadConversations } from '@/lib/unread';
+
+export const dynamic = 'force-dynamic';
 
 interface Params {
   params: { id: string };
@@ -13,6 +16,7 @@ interface Params {
 
 export default async function ContractorProfilePage({ params }: Params) {
   const supabase = createClient();
+  const db = createAdminClient();
 
   const {
     data: { user },
@@ -32,15 +36,15 @@ export default async function ContractorProfilePage({ params }: Params) {
 
   const [
     { data: contractor },
-    { data: ownerProfile },
     { data: serviceAreas },
     { data: categories },
     { data: reviews },
-    { data: activeProject },
-    { data: bookedDeal },
+    openProjectsResult,
+    bookedDealResult,
+    { data: completedProjects },
     unreadMessages,
   ] = await Promise.all([
-    supabase
+    db
       .from('contractor_profiles')
       .select(`
         user_id,
@@ -60,29 +64,23 @@ export default async function ContractorProfilePage({ params }: Params) {
         google_rating,
         google_review_count,
         google_profile_url,
-        completed_jobs_count,
-        response_time_hours
+        response_time_hours,
+        completed_jobs_count
       `)
       .eq('user_id', params.id)
       .maybeSingle(),
 
-    supabase
-      .from('profiles')
-      .select('full_name')
-      .eq('id', params.id)
-      .maybeSingle(),
-
-    supabase
+    db
       .from('contractor_service_areas')
       .select('zip_code, city, state')
       .eq('contractor_id', params.id),
 
-    supabase
+    db
       .from('contractor_categories')
       .select('category_id, categories(name, slug)')
       .eq('contractor_id', params.id),
 
-    supabase
+    db
       .from('reviews')
       .select(`
         id,
@@ -96,21 +94,17 @@ export default async function ContractorProfilePage({ params }: Params) {
       .order('created_at', { ascending: false })
       .limit(12),
 
+    // ALL open projects the homeowner can attach a budget request to
     role === 'homeowner'
       ? supabase
           .from('projects')
-          .select('id, title, status, zip_code, categories(name)')
+          .select('id, title, status')
           .eq('homeowner_id', user.id)
-          .in('status', ['open', 'in_review', 'quoted', 'negotiating', 'expired'])
+          .in('status', ['open', 'in_review', 'quoted', 'negotiating'])
           .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-      : { data: null },
+      : Promise.resolve({ data: [] as Array<{ id: string; title: string | null; status: string }> }),
 
-    // Visibility rule: a homeowner only unlocks the contractor's direct
-    // contact surface (external website, Google profile, owner name, license)
-    // once they have booked this contractor through bidAI. A booked deal is
-    // proven by a payment row from this homeowner to this contractor.
+    // Contact details unlock only after booking (payment exists)
     role === 'homeowner'
       ? supabase
           .from('payments')
@@ -119,20 +113,21 @@ export default async function ContractorProfilePage({ params }: Params) {
           .eq('payee_id', params.id)
           .limit(1)
           .maybeSingle()
-      : { data: null },
+      : Promise.resolve({ data: null }),
+
+    // Completed jobs count — column is backfilled and trigger-maintained
+    Promise.resolve({ data: null }),
 
     countUnreadConversations(supabase, user.id, role),
   ]);
 
   if (!contractor) notFound();
 
-  // Contractors viewing the directory always see full detail; a homeowner
-  // sees the contractor's contact surface only after booking them.
-  const revealContact = role === 'contractor' || Boolean(bookedDeal);
+  const revealContact = role === 'contractor' || Boolean(bookedDealResult.data);
 
   const company = contractor.company_name ?? 'Contractor';
-  const project = activeProject as any | null;
-  const projectId = project?.id ?? null;
+  const projects = (openProjectsResult.data ?? []) as Array<{ id: string; title: string | null; status: string }>;
+  const realCompletedCount = (contractor as any).completed_jobs_count ?? 0;
 
   const ratingValue = contractor.rating_count
     ? Number(contractor.rating_avg).toFixed(1)
@@ -143,16 +138,7 @@ export default async function ContractorProfilePage({ params }: Params) {
   const categoryRows = (categories ?? []) as any[];
 
   const backHref =
-    role === 'homeowner'
-      ? '/dashboard/contractors'
-      : '/dashboard/contractor';
-
-  const dealRoomHref =
-    role === 'homeowner' && projectId
-      ? `/dashboard/messages/${projectId}/${contractor.user_id}`
-      : role === 'homeowner'
-        ? '/dashboard/homeowner/new'
-        : '/dashboard/contractor';
+    role === 'homeowner' ? '/dashboard/contractors' : '/dashboard/contractor';
 
   return (
     <div className="min-h-screen bg-[#f6f7f9] text-slate-900">
@@ -183,6 +169,7 @@ export default async function ContractorProfilePage({ params }: Params) {
               )}
             </div>
 
+            {/* Hero card */}
             <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
               <div className="h-32 bg-slate-100">
                 {contractor.cover_image_url ? (
@@ -220,23 +207,18 @@ export default async function ContractorProfilePage({ params }: Params) {
                         {contractor.verified && (
                           <Badge tone="success">Verified</Badge>
                         )}
-
                         {contractor.license_status === 'verified' && (
                           <Badge tone="success">Licensed</Badge>
                         )}
-
                         {contractor.insurance_status === 'verified' && (
                           <Badge tone="success">Insured</Badge>
                         )}
                       </div>
 
                       <p className="mt-1 text-sm text-slate-500">
-                        {revealContact
-                          ? ((ownerProfile as any)?.full_name ?? 'Company owner')
-                          : 'Company team'}
                         {contractor.years_in_business
-                          ? ` · ${contractor.years_in_business} years in business`
-                          : ''}
+                          ? `${contractor.years_in_business} years in business`
+                          : 'Contractor'}
                       </p>
                     </div>
                   </div>
@@ -247,25 +229,23 @@ export default async function ContractorProfilePage({ params }: Params) {
                     </p>
                   )}
 
+                  {/* Stats */}
                   <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                     <Stat
-                      label="bidAI rating"
+                      label="Rating"
                       value={ratingValue ?? 'New'}
                       hint={`${contractor.rating_count ?? 0} reviews`}
                     />
-
                     <Stat
                       label="Completed jobs"
-                      value={String(contractor.completed_jobs_count ?? '—')}
-                      hint="Marked complete"
+                      value={String(realCompletedCount)}
+                      hint="Verified on bidAI"
                     />
-
                     <Stat
                       label="Service ZIPs"
                       value={String(serviceRows.length)}
                       hint="Covered areas"
                     />
-
                     <Stat
                       label="Response"
                       value={
@@ -278,55 +258,41 @@ export default async function ContractorProfilePage({ params }: Params) {
                   </div>
                 </div>
 
+                {/* Action sidebar */}
                 <aside className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4 lg:mt-5">
                   <div className="text-xs font-black uppercase tracking-wide text-slate-500">
-                    Start safely
+                    Request a quote
                   </div>
 
                   <p className="mt-2 text-xs leading-5 text-slate-600">
-                    Before checkout, use structured offers only. Direct chat
-                    opens after payment is completed.
+                    Send a structured budget request. The contractor will review
+                    and respond with an offer.
                   </p>
 
                   {role === 'homeowner' && !revealContact && (
                     <p className="mt-3 rounded-lg border border-slate-200 bg-white px-3 py-2 text-[11px] leading-4 text-slate-500">
-                      The contractor&apos;s website, Google profile and owner
-                      contact details unlock once you book this contractor
+                      Contact details unlock once you book this contractor
                       through bidAI checkout.
                     </p>
                   )}
 
                   <div className="mt-4 grid gap-2">
-                    {role === 'homeowner' && projectId ? (
-                      <MakeOfferButton
-                        projectId={projectId}
-                        projectTitle={project?.title ?? null}
+                    {role === 'homeowner' ? (
+                      <BudgetRequestFlow
+                        projects={projects}
                         contractorId={contractor.user_id}
                         contractorCompany={company}
                         contractorRating={contractor.rating_avg ?? null}
                         contractorReviewCount={contractor.rating_count ?? null}
                         contractorVerified={Boolean(contractor.verified)}
                         contractorBio={contractor.bio ?? null}
-                        label="Send budget offer"
-                        className="h-9 rounded-lg px-3 text-xs font-semibold"
                       />
                     ) : (
                       <Link
-                        href={dealRoomHref}
-                        className="inline-flex h-9 items-center justify-center rounded-lg bg-[#f45112] px-3 text-xs font-semibold text-white hover:bg-[#d94406]"
-                      >
-                        {role === 'homeowner'
-                          ? 'Create project first'
-                          : 'Back to dashboard'}
-                      </Link>
-                    )}
-
-                    {role === 'homeowner' && projectId && (
-                      <Link
-                        href={dealRoomHref}
+                        href="/dashboard/contractor"
                         className="inline-flex h-9 items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-900 hover:bg-slate-50"
                       >
-                        Open deal room
+                        Back to dashboard
                       </Link>
                     )}
 
@@ -358,11 +324,9 @@ export default async function ContractorProfilePage({ params }: Params) {
 
             <section className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]">
               <div className="space-y-5">
+                {/* Services */}
                 <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                  <h2 className="text-sm font-black text-slate-900">
-                    Services
-                  </h2>
-
+                  <h2 className="text-sm font-black text-slate-900">Services</h2>
                   <p className="mt-0.5 text-xs text-slate-500">
                     Categories this contractor accepts on bidAI.
                   </p>
@@ -385,13 +349,13 @@ export default async function ContractorProfilePage({ params }: Params) {
                   )}
                 </section>
 
+                {/* Reviews */}
                 <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <h2 className="text-sm font-black text-slate-900">
                         Reviews
                       </h2>
-
                       <p className="mt-0.5 text-xs text-slate-500">
                         Feedback from completed bidAI projects.
                       </p>
@@ -410,11 +374,10 @@ export default async function ContractorProfilePage({ params }: Params) {
                     </p>
                   ) : (
                     <div className="mt-4 divide-y divide-slate-100">
-                      {reviewRows.map((review) => {
+                      {reviewRows.map((review: any) => {
                         const reviewerName =
                           firstRow<any>(review.reviewer)?.full_name ??
                           'Homeowner';
-
                         const projectTitle =
                           firstRow<any>(review.projects)?.title ?? 'Project';
 
@@ -450,11 +413,11 @@ export default async function ContractorProfilePage({ params }: Params) {
               </div>
 
               <aside className="space-y-5">
+                {/* Service area */}
                 <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                   <h2 className="text-sm font-black text-slate-900">
                     Service area
                   </h2>
-
                   <p className="mt-0.5 text-xs text-slate-500">
                     ZIP areas covered by this contractor.
                   </p>
@@ -480,18 +443,7 @@ export default async function ContractorProfilePage({ params }: Params) {
                   )}
                 </section>
 
-                  <section className="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
-                  <div className="text-xs font-black uppercase tracking-wide text-red-700">
-                    Platform rules
-                  </div>
-
-                  <p className="mt-2 text-xs leading-5 text-red-900/80">
-                    Direct contact details are hidden until the contractor is
-                    booked through bidAI checkout. Keep offers, negotiation and
-                    project communication inside the platform.
-                  </p>
-                </section>
-
+                {/* Trust details — no sensitive info shown (not yet booked) */}
                 <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
                   <h2 className="text-sm font-black text-slate-900">
                     Trust details
@@ -501,14 +453,11 @@ export default async function ContractorProfilePage({ params }: Params) {
                     <InfoRow
                       label="License"
                       value={
-                        revealContact
-                          ? contractor.license_number || 'Not provided'
-                          : contractor.license_status === 'verified'
-                            ? 'Verified'
-                            : 'Hidden until booking'
+                        contractor.license_status === 'verified'
+                          ? 'Verified'
+                          : 'Not verified'
                       }
                     />
-
                     <InfoRow
                       label="Insurance"
                       value={
@@ -517,18 +466,6 @@ export default async function ContractorProfilePage({ params }: Params) {
                           : contractor.insurance_status || 'Not provided'
                       }
                     />
-
-                    <InfoRow
-                      label="Insurance carrier"
-                      value={
-                        revealContact
-                          ? contractor.insurance_carrier || 'Not provided'
-                          : contractor.insurance_status === 'verified'
-                            ? 'Verified carrier'
-                            : 'Hidden until booking'
-                      }
-                    />
-
                     <InfoRow
                       label="Google rating"
                       value={
@@ -540,6 +477,17 @@ export default async function ContractorProfilePage({ params }: Params) {
                       }
                     />
                   </div>
+                </section>
+
+                <section className="rounded-lg border border-red-200 bg-red-50 p-4 shadow-sm">
+                  <div className="text-xs font-black uppercase tracking-wide text-red-700">
+                    Platform rules
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-red-900/80">
+                    Direct contact details are hidden until the contractor is
+                    booked through bidAI checkout. Keep offers and negotiation
+                    inside the platform.
+                  </p>
                 </section>
               </aside>
             </section>
@@ -564,31 +512,16 @@ function Stat({
       <div className="text-[10px] font-black uppercase tracking-wide text-slate-400">
         {label}
       </div>
-
-      <div className="mt-1 text-lg font-black text-slate-900">
-        {value}
-      </div>
-
-      <div className="mt-0.5 text-xs font-semibold text-slate-500">
-        {hint}
-      </div>
+      <div className="mt-1 text-lg font-black text-slate-900">{value}</div>
+      <div className="mt-0.5 text-xs font-semibold text-slate-500">{hint}</div>
     </div>
   );
 }
 
-function InfoRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: string;
-}) {
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-3 last:border-b-0 last:pb-0">
-      <span className="text-xs font-bold text-slate-500">
-        {label}
-      </span>
-
+      <span className="text-xs font-bold text-slate-500">{label}</span>
       <span className="max-w-[180px] text-right text-xs font-black text-slate-900">
         {value}
       </span>
@@ -606,11 +539,6 @@ function initials(value: string) {
 }
 
 function firstRow<T>(value: T | T[] | null | undefined): T | null {
-  if (Array.isArray(value)) {
-    return value[0] ?? null;
-  }
-
+  if (Array.isArray(value)) return value[0] ?? null;
   return value ?? null;
 }
-
-               

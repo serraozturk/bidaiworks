@@ -180,8 +180,11 @@ export default function ContractorOnboardingForm({ categories }: Props) {
       return;
     }
 
-    await supabase.from('profiles').update({ role: 'contractor' }).eq('id', user.id);
-
+    // Create the contractor profile FIRST. Only flip profiles.role to
+    // 'contractor' once this succeeds - otherwise a failed insert here
+    // leaves the user stuck with role=contractor but no contractor_profiles
+    // row, which makes them invisible to admin and breaks the dashboard
+    // redirect logic.
     const { error: cpErr } = await supabase.from('contractor_profiles').upsert({
       user_id: user.id,
       company_name: companyName.trim(),
@@ -201,7 +204,18 @@ export default function ContractorOnboardingForm({ categories }: Props) {
     });
 
     if (cpErr) {
-      setError(cpErr.message);
+      setError(`Could not save your contractor profile: ${cpErr.message}`);
+      setLoading(false);
+      return;
+    }
+
+    const { error: roleErr } = await supabase
+      .from('profiles')
+      .update({ role: 'contractor' })
+      .eq('id', user.id);
+
+    if (roleErr) {
+      setError(`Profile saved, but could not finalize your account: ${roleErr.message}. Please try submitting again.`);
       setLoading(false);
       return;
     }

@@ -36,6 +36,8 @@ interface MakeOfferButtonProps {
   variant?: 'primary' | 'secondary';
   className?: string;
   label?: string;
+  /** When true, the offer modal opens immediately on mount (used after project picker). */
+  initialOpen?: boolean;
 }
 
 /**
@@ -74,13 +76,14 @@ export function MakeOfferButton(props: MakeOfferButtonProps) {
     variant = 'primary',
     className,
     label = 'Ask with budget',
+    initialOpen = false,
   } = props;
 
   const router = useRouter();
   const supabase = createClient();
 
   const [mounted, setMounted] = useState(false);
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
 
   const [amount, setAmount] = useState('');
   const [timeline, setTimeline] = useState('');
@@ -706,7 +709,7 @@ Painting`}
         className={[
           triggerClasses,
           'disabled:cursor-not-allowed disabled:opacity-50',
-          className,
+           className,
         ]
           .filter(Boolean)
           .join(' ')}

@@ -298,7 +298,7 @@ export default async function AdminConversationDetailPage({ params }: Params) {
                 label={`Homeowner — ${homeownerName}`}
                 userId={conversation.homeowner_id}
                 muted={Boolean((homeowner as any)?.messaging_disabled)}
-                openHref={null}
+                openHref={`/admin/users/${conversation.homeowner_id}`}
               />
               <ParticipantRow
                 label={`Contractor — ${companyName}`}

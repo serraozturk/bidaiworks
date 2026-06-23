@@ -10,7 +10,8 @@ import {
   money,
 } from '@/components/admin/ui';
 import { AdminActionButton } from '@/components/admin/AdminActionButton';
-import { actionFlag, createFlag, dismissFlag } from '@/app/admin/actions';
+import { actionFlag, createFlag, dismissFlag, warnUserFromFlag, suspendUserFromFlag } from '@/app/admin/actions';
+import FlagsFilterList from './FlagsFilterList';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +47,7 @@ export default async function AdminFlagsPage() {
       .limit(500),
     db.from('projects').select('id, title, category_id, homeowner_id'),
     db.from('categories').select('id, name'),
-    db.from('profiles').select('id, full_name, role'),
+    db.from('profiles').select('id, full_name, role, suspended'),
   ]);
 
   const projectById = new Map((projects ?? []).map((p) => [p.id, p]));
@@ -54,9 +55,6 @@ export default async function AdminFlagsPage() {
   const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
 
   // ---- Live extreme-offer detection ----
-  // Group offers by category, compute median, flag offers that are more
-  // than 2x above or below 50% of the median. Need at least 3 data points
-  // in a category for the comparison to be meaningful.
   const byCategory = new Map<string, number[]>();
   for (const o of offers ?? []) {
     const project = projectById.get(o.project_id);
@@ -106,7 +104,6 @@ export default async function AdminFlagsPage() {
       extremeOffers.push({ offer: o, median, direction: 'too_low', ratio });
     }
   }
-  // Sort: most extreme first.
   extremeOffers.sort(
     (a, b) =>
       Math.max(b.ratio, 1 / Math.max(b.ratio, 0.001)) -
@@ -117,6 +114,34 @@ export default async function AdminFlagsPage() {
   const openFlags = flagRows.filter((f) => f.status === 'open');
   const resolvedFlags = flagRows.filter((f) => f.status !== 'open');
   const urgentOpen = openFlags.filter((f) => f.severity === 'urgent').length;
+
+  // Count flags per user for context
+  const flagCountByUser = new Map<string, number>();
+  for (const f of flagRows) {
+    if (f.user_id) {
+      flagCountByUser.set(f.user_id, (flagCountByUser.get(f.user_id) ?? 0) + 1);
+    }
+  }
+
+  const openFlagRows = openFlags.map((f) => {
+    const target = describeTarget(f, { projectById, profileById });
+    const userProfile = f.user_id ? (profileById.get(f.user_id) as any) : null;
+    return {
+      id: f.id,
+      kind: f.kind,
+      severity: f.severity ?? 'normal',
+      summary: f.summary,
+      detail: f.detail,
+      created_at: f.created_at,
+      user_id: f.user_id ?? null,
+      userRole: (userProfile?.role as string | null) ?? null,
+      userName: (userProfile?.full_name as string | null) ?? null,
+      userSuspended: Boolean(userProfile?.suspended),
+      userFlagCount: f.user_id ? (flagCountByUser.get(f.user_id) ?? 0) : 0,
+      targetLabel: target.label,
+      targetLinks: target.links,
+    };
+  });
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-6">
@@ -146,84 +171,13 @@ export default async function AdminFlagsPage() {
       </div>
 
       <div className="mb-5">
-        <Panel
-          title="Open flags"
-          description={`${openFlags.length} flag${openFlags.length === 1 ? '' : 's'} awaiting decision`}
-        >
-          {openFlags.length === 0 ? (
-            <EmptyRow>Nothing flagged. Quiet for now.</EmptyRow>
-          ) : (
-            <ul className="divide-y divide-slate-100">
-              {openFlags.map((f) => {
-                const target = describeTarget(f, {
-                  projectById,
-                  profileById,
-                });
-                return (
-                  <li key={f.id} className="px-4 py-4">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Pill value={readable(f.kind)} />
-                      <SeverityPill value={f.severity ?? 'normal'} />
-                      <span className="text-sm font-black text-slate-900">
-                        {f.summary}
-                      </span>
-                    </div>
-
-                    <p className="mt-1 text-[11px] font-semibold text-slate-400">
-                      Opened {formatWhen(f.created_at)} · {target.label}
-                    </p>
-
-                    {target.links.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        {target.links.map((l) => (
-                          <Link
-                            key={l.href}
-                            href={l.href}
-                            className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
-                          >
-                            {l.label} →
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-
-                    {f.detail && (
-                      <pre className="mt-2 overflow-x-auto rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-5 text-slate-600">
-                        {JSON.stringify(f.detail, null, 2)}
-                      </pre>
-                    )}
-
-                    <div className="mt-3 grid gap-2 md:grid-cols-2">
-                      <form action={actionFlag}>
-                        <input type="hidden" name="id" value={f.id} />
-                        <input
-                          name="note"
-                          placeholder="What did you do? (suspended user, redacted message, ...)"
-                          className="mb-2 h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700 outline-none focus:border-orange-300 focus:ring-4 focus:ring-orange-100"
-                        />
-                        <AdminActionButton tone="emerald" confirm="Close this flag as actioned?">
-                          Mark actioned & close
-                        </AdminActionButton>
-                      </form>
-
-                      <form action={dismissFlag}>
-                        <input type="hidden" name="id" value={f.id} />
-                        <input
-                          name="note"
-                          placeholder="Why dismiss? (optional)"
-                          className="mb-2 h-9 w-full rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700 outline-none focus:border-slate-400 focus:ring-4 focus:ring-slate-100"
-                        />
-                        <AdminActionButton tone="slate" confirm="Dismiss this flag?">
-                          Dismiss (no action)
-                        </AdminActionButton>
-                      </form>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Panel>
+        <FlagsFilterList
+          rows={openFlagRows}
+          actionFlagAction={actionFlag}
+          dismissFlagAction={dismissFlag}
+          warnUserAction={warnUserFromFlag}
+          suspendUserAction={suspendUserFromFlag}
+        />
       </div>
 
       <div className="mb-5">
@@ -371,6 +325,11 @@ function describeTarget(
         href: `/admin/contractors/${f.user_id}`,
         label: 'Open contractor',
       });
+    } else if (u?.role === 'homeowner') {
+      links.push({
+        href: `/admin/users/${f.user_id}`,
+        label: 'Open homeowner',
+      });
     }
   }
   if (f.message_id) {
@@ -388,22 +347,4 @@ function describeTarget(
 
 function readable(value: string) {
   return value.replaceAll('_', ' ');
-}
-
-function SeverityPill({ value }: { value: string }) {
-  const cls =
-    value === 'urgent'
-      ? 'bg-red-100 text-red-800'
-      : value === 'high'
-        ? 'bg-orange-100 text-orange-800'
-        : value === 'low'
-          ? 'bg-slate-100 text-slate-600'
-          : 'bg-amber-100 text-amber-800';
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-black uppercase ${cls}`}
-    >
-      {value}
-    </span>
-  );
 }

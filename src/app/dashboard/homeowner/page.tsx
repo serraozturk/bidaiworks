@@ -1,9 +1,12 @@
+export const dynamic = 'force-dynamic';
+
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { formatRange, relativeTime } from '@/lib/utils';
 import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { MakeOfferButton } from '@/components/MakeOfferButton';
+import MarkCompleteButton from '@/components/MarkCompleteButton';
 import { countUnreadConversations } from '@/lib/unread';
 
 type ProjectRow = {
@@ -152,6 +155,7 @@ export default async function HomeownerDashboard() {
         city,
         state,
         status,
+        moderation_status,
         payment_status,
         ai_estimate_min,
         ai_estimate_max,
@@ -178,6 +182,7 @@ export default async function HomeownerDashboard() {
         years_in_business,
         bio
       `)
+      .eq('verified', true)
       .order('rating_avg', { ascending: false })
       .order('rating_count', { ascending: false })
       .limit(6),
@@ -220,8 +225,10 @@ export default async function HomeownerDashboard() {
     return Boolean(stats && stats.needsReviewCount > 0);
   });
 
+  // Badge on "Compare offers": only count offers that need the homeowner's attention
+  // (pending/countered). Accepted or payment-pending offers are already acted on.
   const openOfferCount = Array.from(statsByProjectId.values()).reduce(
-    (sum, stats) => sum + stats.activeOfferCount,
+    (sum, stats) => sum + stats.needsReviewCount,
     0,
   );
 
@@ -385,6 +392,10 @@ export default async function HomeownerDashboard() {
                             paymentPendingCount: 0,
                           }
                         }
+                        contractorId={resolveContractorId(
+                          project.awarded_offer_id ?? project.selected_offer_id,
+                          offers,
+                        )}
                       />
                     ))}
                   </div>
@@ -393,10 +404,10 @@ export default async function HomeownerDashboard() {
                 {projectRows.length > latestProjects.length && (
                   <div className="border-t border-slate-100 px-5 py-3 text-right">
                     <Link
-                      href="/dashboard/homeowner/compare"
+                      href="/dashboard/homeowner/projects"
                       className="text-xs font-black text-[#f4510b] hover:underline"
                     >
-                      View all projects and offers →
+                      View all projects →
                     </Link>
                   </div>
                 )}
@@ -598,12 +609,14 @@ function SectionHeader({
 function ProjectLine({
   project,
   stats,
+  contractorId,
 }: {
   project: ProjectRow;
   stats: ProjectStats;
+  contractorId: string | null;
 }) {
   const category = categoryName(project.categories) ?? 'Renovation';
-  const status = projectStatusConfig(project.status);
+  const status = projectStatusConfig(project.status, (project as any).moderation_status);
 
   const projectHref = `/dashboard/homeowner/projects/${project.id}`;
   const compareHref = `/dashboard/homeowner/compare?project=${project.id}`;
@@ -686,6 +699,12 @@ function ProjectLine({
           >
             Compare
           </Link>
+        ) : isActive && project.status === 'in_progress' ? (
+          <MarkCompleteButton
+            projectId={project.id}
+            contractorId={contractorId}
+            compact
+          />
         ) : (
           <Link
             href="/dashboard/messages"
@@ -927,6 +946,18 @@ function ContractorCard({
 /* Data helpers                                                                */
 /* -------------------------------------------------------------------------- */
 
+function resolveContractorId(
+  offerId: string | null | undefined,
+  offers: OfferRow[],
+): string | null {
+  if (!offerId) return null;
+  const offer = offers.find((o) => o.id === offerId);
+  if (!offer) return null;
+  return offer.sender_role === 'contractor'
+    ? offer.sender_id
+    : (offer.recipient_id ?? null);
+}
+
 async function getProjectOffers(
   supabase: ReturnType<typeof createClient>,
   projectIds: string[],
@@ -1085,10 +1116,29 @@ function startLabel(project: ProjectRow): string {
   return 'Flexible';
 }
 
-function projectStatusConfig(status: string): {
+function projectStatusConfig(
+  status: string,
+  moderationStatus?: string | null,
+): {
   label: string;
   className: string;
 } {
+  // Before admin approval, contractors cannot see this project yet - show
+  // a review state instead of "Open" so it's not misleading.
+  if (status === 'open' && (moderationStatus ?? 'pending') === 'pending') {
+    return {
+      label: 'Reviewing',
+      className: 'bg-amber-100 text-amber-800',
+    };
+  }
+
+  if (status === 'open' && moderationStatus === 'rejected') {
+    return {
+      label: 'Not approved',
+      className: 'bg-slate-200 text-slate-600',
+    };
+  }
+
   if (status === 'open') {
     return {
       label: 'Open',

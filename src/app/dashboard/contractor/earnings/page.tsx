@@ -178,17 +178,16 @@ if (projectIds.length > 0) {
 
   const withdrawalRows = (withdrawals ?? []) as any[];
 
+  // Commitment fee is paid separately; payout = full project amount.
   const escrowTotal = heldRows.reduce((sum, payment) => {
-  const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
+    const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
+    return sum + Number(payment.project_amount ?? offer?.amount ?? 0);
+  }, 0);
 
-  return sum + contractorNetAmount(payment, offer);
-}, 0);
-
-const releasedTotal = releasedRows.reduce((sum, payment) => {
-  const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
-
-  return sum + contractorNetAmount(payment, offer);
-}, 0);
+  const releasedTotal = releasedRows.reduce((sum, payment) => {
+    const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
+    return sum + Number(payment.project_amount ?? offer?.amount ?? 0);
+  }, 0);
 
 const lifetimeFees = payments.reduce((sum, payment) => {
   const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
@@ -196,11 +195,10 @@ const lifetimeFees = payments.reduce((sum, payment) => {
   return sum + contractorFeeAmount(payment, offer);
 }, 0);
 
-const lifetimeNet = payments.reduce((sum, payment) => {
-  const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
-
-  return sum + contractorNetAmount(payment, offer);
-}, 0);
+  const lifetimeNet = payments.reduce((sum, payment) => {
+    const offer = payment.offer_id ? offersById.get(payment.offer_id) : null;
+    return sum + Number(payment.project_amount ?? offer?.amount ?? 0);
+  }, 0);
   const totalWithdrawn = withdrawalRows
     .filter((withdrawal) =>
       ['completed', 'pending', 'processing'].includes(withdrawal.status),
@@ -268,9 +266,9 @@ const lifetimeNet = payments.reduce((sum, payment) => {
                 />
 
                 <BalanceCard
-                  label="Lifetime net"
+                  label="Lifetime earned"
                   value={formatCurrency(lifetimeNet)}
-                  hint="After commitment fees"
+                  hint="Full project payouts"
                 />
 
                 <BalanceCard
@@ -525,12 +523,12 @@ const fee = contractorFeeAmount(payment, offer);
                     </p>
 
                     <div className="mt-3 grid gap-2 rounded-lg bg-slate-50 p-3 text-xs sm:grid-cols-3">
-                      <MoneyMini label="Gross" value={formatCurrency(gross)} />
+                      <MoneyMini label="Project amount" value={formatCurrency(gross)} />
                       <MoneyMini
-                        label="Commitment fee"
-                        value={`-${formatCurrency(fee)}`}
+                        label="Commitment fee (separate)"
+                        value={formatCurrency(fee)}
                       />
-                      <MoneyMini label="Net" value={formatCurrency(net)} strong />
+                      <MoneyMini label="Your payout" value={formatCurrency(gross)} strong />
                     </div>
                   </div>
 

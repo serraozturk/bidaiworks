@@ -9,11 +9,9 @@ import {
   formatWhen,
 } from '@/components/admin/ui';
 import { resolveDispute } from '@/app/admin/actions';
-import { AdminActionButton } from '@/components/admin/AdminActionButton';
+import DisputesFilterList from './DisputesFilterList';
 
 export const dynamic = 'force-dynamic';
-
-type DisputeResolution = 'released' | 'refunded' | 'dismissed';
 
 export default async function AdminDisputesPage() {
   const db = createAdminClient();
@@ -62,6 +60,19 @@ export default async function AdminDisputesPage() {
   const open = rows.filter((dispute) => dispute.status !== 'resolved');
   const resolved = rows.filter((dispute) => dispute.status === 'resolved');
 
+  const openTableRows = open.map((d) => ({
+    id: d.id,
+    project_id: d.project_id,
+    project_title: titleById.get(d.project_id) ?? 'Project',
+    raised_by_role: d.raised_by_role,
+    category: d.category,
+    priority: d.priority,
+    requested_resolution: d.requested_resolution,
+    evidence_summary: d.evidence_summary,
+    reason: d.reason,
+    created_at: d.created_at,
+  }));
+
   return (
     <div className="mx-auto max-w-[1100px] px-6 py-6">
       <AdminPageHeader
@@ -82,81 +93,7 @@ export default async function AdminDisputesPage() {
         <StatCard label="Total" value={rows.length} />
       </div>
 
-      <Panel
-        title="Open disputes"
-        description={`${open.length} needing a decision`}
-      >
-        {open.length === 0 ? (
-          <EmptyRow>No open disputes.</EmptyRow>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {open.map((dispute) => (
-              <li key={dispute.id} className="px-4 py-4">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Link
-                    href={`/admin/projects/${dispute.project_id}`}
-                    className="text-sm font-black text-slate-900 hover:text-orange-600"
-                  >
-                    {titleById.get(dispute.project_id) ?? 'Project'}
-                  </Link>
-
-                  <Pill value="open" />
-                  <Pill value={dispute.category ?? 'work_quality'} />
-                  <Pill value={dispute.priority ?? 'high'} />
-                </div>
-
-                <p className="mt-1 text-[11px] font-semibold text-slate-400">
-                  Raised by {dispute.raised_by_role ?? 'a participant'} ·{' '}
-                  {formatWhen(dispute.created_at)}
-                </p>
-
-                <p className="mt-2 whitespace-pre-wrap rounded-xl bg-slate-50 px-3 py-2 text-sm leading-6 text-slate-700">
-                  {dispute.reason || 'No reason provided.'}
-                </p>
-
-                {dispute.requested_resolution && (
-                  <p className="mt-2 rounded-xl border border-orange-100 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-900">
-                    Requested resolution:{' '}
-                    {String(dispute.requested_resolution).replaceAll('_', ' ')}
-                  </p>
-                )}
-
-                {dispute.evidence_summary && (
-                  <p className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs leading-5 text-slate-600">
-                    <span className="font-black text-slate-500">
-                      Evidence:{' '}
-                    </span>
-                    {dispute.evidence_summary}
-                  </p>
-                )}
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <ResolveButton
-                    id={dispute.id}
-                    resolution="released"
-                    label="Release escrow to contractor"
-                    tone="emerald"
-                  />
-
-                  <ResolveButton
-                    id={dispute.id}
-                    resolution="refunded"
-                    label="Refund the homeowner"
-                    tone="rose"
-                  />
-
-                  <ResolveButton
-                    id={dispute.id}
-                    resolution="dismissed"
-                    label="Dismiss dispute"
-                    tone="slate"
-                  />
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </Panel>
+      <DisputesFilterList rows={openTableRows} resolveAction={resolveDispute} />
 
       <div className="mt-5">
         <Panel title="Resolved" description={`${resolved.length} closed`}>
@@ -202,25 +139,5 @@ export default async function AdminDisputesPage() {
         </Panel>
       </div>
     </div>
-  );
-}
-
-function ResolveButton({
-  id,
-  resolution,
-  label,
-}: {
-  id: string;
-  resolution: DisputeResolution;
-  label: string;
-  tone: 'emerald' | 'rose' | 'slate';
-}) {
-  return (
-    <form action={resolveDispute}>
-      <input type="hidden" name="id" value={id} />
-      <input type="hidden" name="resolution" value={resolution} />
-
-      <AdminActionButton>{label}</AdminActionButton>
-    </form>
   );
 }

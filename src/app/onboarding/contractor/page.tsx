@@ -25,11 +25,17 @@ export default async function ContractorOnboarding() {
 
   if (existing) redirect('/dashboard/contractor');
 
-  const { data: categories } = await supabase
+  // Note: categories has no `active` column - selecting it caused this
+  // query to error out and silently return zero categories, leaving the
+  // service-category picker empty for every new contractor signup.
+  const { data: categories, error: categoriesError } = await supabase
     .from('categories')
     .select('*')
-    .eq('active', true)
     .order('sort_order', { ascending: true });
+
+  if (categoriesError) {
+    console.error('Onboarding categories query error:', categoriesError);
+  }
 
   return (
     <main className="min-h-screen bg-[#f8fafc] px-4 py-12 text-slate-900">

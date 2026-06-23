@@ -41,6 +41,11 @@ const SECTIONS: { title: string; items: Item[] }[] = [
         match: (p) => p.startsWith('/admin/contractors'),
       },
       {
+        href: '/admin/users',
+        label: 'Homeowners',
+        match: (p) => p.startsWith('/admin/users'),
+      },
+      {
         href: '/admin/conversations',
         label: 'Conversations',
         match: (p) => p.startsWith('/admin/conversations'),

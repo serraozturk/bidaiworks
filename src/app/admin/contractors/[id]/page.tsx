@@ -38,6 +38,7 @@ export default async function AdminContractorDetailPage({ params }: Params) {
     { data: offers },
     { data: payments },
     { data: reviews },
+    { data: modHistory },
   ] = await Promise.all([
     db.from('profiles').select('id, full_name, phone, created_at, suspended, suspension_reason').eq('id', params.id).maybeSingle(),
     db.from('contractor_categories').select('category_id, categories(name)').eq('contractor_id', params.id),
@@ -58,6 +59,13 @@ export default async function AdminContractorDetailPage({ params }: Params) {
       .select('id, rating, comment, created_at')
       .eq('contractor_id', params.id)
       .order('created_at', { ascending: false }),
+    // Moderation history: all flags linked to this user (open + closed)
+    db
+      .from('admin_flags')
+      .select('id, kind, severity, status, summary, admin_note, created_at, resolved_at')
+      .eq('user_id', params.id)
+      .order('created_at', { ascending: false }),
+
   ]);
 
   let email = '—';
@@ -69,6 +77,7 @@ export default async function AdminContractorDetailPage({ params }: Params) {
   }
 
   const offerRows = offers ?? [];
+  const liveCompletedCount = (company as any).completed_jobs_count ?? 0;
   const suspended = Boolean((owner as any)?.suspended);
   const paymentRows = payments ?? [];
   const escrow = paymentRows
@@ -101,7 +110,7 @@ export default async function AdminContractorDetailPage({ params }: Params) {
           value={company.rating_count > 0 ? `★ ${Number(company.rating_avg).toFixed(1)}` : 'New'}
           hint={`${company.rating_count ?? 0} reviews`}
         />
-        <StatCard label="Jobs completed" value={company.completed_jobs_count ?? 0} />
+        <StatCard label="Jobs completed" value={liveCompletedCount} />
         <StatCard label="Earned (released)" value={money(earned)} tone="success" hint={`${money(escrow)} in escrow`} />
       </div>
 
@@ -308,6 +317,47 @@ export default async function AdminContractorDetailPage({ params }: Params) {
                       </p>
                     </div>
                     <Pill value={p.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+
+          {/* Moderation history */}
+          <Panel
+            title="Moderation history"
+            description={`${(modHistory ?? []).length} flag(s) on this account`}
+          >
+            {(modHistory ?? []).length === 0 ? (
+              <EmptyRow>No flags on this account.</EmptyRow>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {(modHistory ?? []).map((m: any) => (
+                  <li key={m.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span
+                        className={[
+                          'rounded-full px-2 py-0.5 text-[11px] font-black uppercase',
+                          m.status === 'open'
+                            ? 'bg-red-100 text-red-700'
+                            : m.status === 'actioned'
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-slate-100 text-slate-600',
+                        ].join(' ')}
+                      >
+                        {m.status}
+                      </span>
+                      <span className="text-sm font-bold text-slate-700">
+                        {m.kind.replaceAll('_', ' ')} — {m.summary}
+                      </span>
+                    </div>
+                    {m.admin_note && (
+                      <p className="mt-1 text-xs text-slate-500">Admin note: {m.admin_note}</p>
+                    )}
+                    <p className="mt-0.5 text-[11px] font-semibold text-slate-400">
+                      {formatWhen(m.created_at)}
+                      {m.resolved_at ? ` · resolved ${formatWhen(m.resolved_at)}` : ''}
+                    </p>
                   </li>
                 ))}
               </ul>

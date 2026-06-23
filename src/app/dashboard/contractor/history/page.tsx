@@ -168,11 +168,11 @@ export default async function ContractorHistoryPage() {
               <div className="grid bg-white md:grid-cols-4">
                 <Metric label="Completed jobs" value={String(completedCount)} />
                 <Metric
-                  label="Gross completed"
+                  label="Total earned"
                   value={formatCurrency(grossTotal)}
                 />
-                <Metric label="Net released" value={formatCurrency(netTotal)} />
-                <Metric label="Commitment fees" value={formatCurrency(feeTotal)} />
+                <Metric label="Released payouts" value={formatCurrency(grossTotal)} />
+                <Metric label="Commitment fees paid" value={formatCurrency(feeTotal)} />
               </div>
             </header>
 
@@ -242,18 +242,18 @@ export default async function ContractorHistoryPage() {
 
                             <div className="mt-4 grid gap-3 md:grid-cols-3">
                               <InfoBlock
-                                label="Gross amount"
+                                label="Project amount"
                                 value={formatCurrency(gross)}
                               />
 
                               <InfoBlock
-                                label="Commitment fee"
-                                value={`-${formatCurrency(fee)}`}
+                                label="Commitment fee (separate)"
+                                value={formatCurrency(fee)}
                               />
 
                               <InfoBlock
-                                label="Released payout"
-                                value={formatCurrency(net)}
+                                label="Your payout"
+                                value={formatCurrency(gross)}
                                 strong
                               />
                             </div>
@@ -300,7 +300,7 @@ export default async function ContractorHistoryPage() {
                             </div>
 
                             <div className="mt-2 text-2xl font-black tracking-tight text-[#0f172a]">
-                              {formatCurrency(net)}
+                              {formatCurrency(gross)}
                             </div>
 
                             <p className="mt-1 text-xs text-slate-500">
@@ -627,6 +627,5 @@ function firstRow<T>(value: T | T[] | null | undefined): T | undefined {
 function categoryName(value: any): string | null {
   if (!value) return null;
   if (Array.isArray(value)) return value[0]?.name ?? null;
-
   return value.name ?? null;
 }

@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -39,66 +41,7 @@ export default async function ContractorDashboardPage() {
       .maybeSingle(),
   ]);
 
-  if (profile?.role !== 'contractor') redirect('/dashboard');
-  if (!contractorProfile) redirect('/onboarding/contractor');
-
-  // Verification gate — block non-verified contractors from the dashboard
-  const verificationStatus = (contractorProfile as any).verification_status ?? 'pending_verification';
-  if (verificationStatus !== 'verified') {
-    const isRejected = verificationStatus === 'rejected';
-    const isSuspended = verificationStatus === 'suspended';
-    const rejectionReason = (contractorProfile as any).rejection_reason as string | null;
-
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-[#f8fafc] px-4 py-16 text-center">
-        <div className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 shadow-md">
-          {!isRejected && !isSuspended && (
-            <>
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 text-2xl">⏳</div>
-              <h1 className="text-2xl font-black text-slate-900">Application under review</h1>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Thank you for applying! Our team is reviewing your contractor application.
-                You will receive an email once your account is verified — typically within
-                <strong className="font-bold text-slate-700"> 1–2 business days</strong>.
-              </p>
-            </>
-          )}
-          {isRejected && (
-            <>
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-red-100 text-2xl">✗</div>
-              <h1 className="text-2xl font-black text-slate-900">Application not approved</h1>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Unfortunately your contractor application was not approved at this time.
-              </p>
-              {rejectionReason && (
-                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-left text-sm text-red-700">
-                  <strong className="font-black">Reason: </strong>{rejectionReason}
-                </div>
-              )}
-            </>
-          )}
-          {isSuspended && (
-            <>
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-2xl">⚠️</div>
-              <h1 className="text-2xl font-black text-slate-900">Account suspended</h1>
-              <p className="mt-3 text-sm leading-6 text-slate-500">
-                Your contractor account has been suspended.{rejectionReason ? ` Reason: ${rejectionReason}` : ''}
-              </p>
-            </>
-          )}
-          <p className="mt-4 text-sm text-slate-400">
-            Questions? Contact us at{' '}
-            <a href="mailto:support@bidai.com" className="font-bold text-[#f45112] hover:underline">
-              support@bidai.com
-            </a>
-          </p>
-          <div className="mt-6 border-t border-slate-100 pt-4">
-            <a href="/login" className="text-sm font-bold text-slate-400 hover:text-slate-600">Sign out</a>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Note: role + verification checks are handled by layout.tsx
 
   const [
     { data: serviceAreas },
@@ -273,10 +216,11 @@ export default async function ContractorDashboardPage() {
     return payment.status === 'held' && project && project.status === 'in_progress';
   });
 
-  const escrowTotal = activeJobs.reduce(
-    (sum, payment) => sum + contractorNetAmount(payment),
-    0,
-  );
+  // Commitment fee is paid separately by the contractor; payout = full project amount.
+  const escrowTotal = activeJobs.reduce((sum, payment) => {
+    const offer = firstRow<any>(payment.offers);
+    return sum + Number(payment.project_amount ?? offer?.amount ?? 0);
+  }, 0);
 
   const latestActiveJobs = activeJobs.slice(0, 2);
 
@@ -304,7 +248,7 @@ export default async function ContractorDashboardPage() {
                     </p>
 
                     <h1 className="mt-2 text-3xl font-black tracking-tight text-slate-900">
-                      {contractorProfile.company_name ||
+                      {contractorProfile?.company_name ||
                         profile?.full_name ||
                         'Welcome'}
                     </h1>
@@ -533,7 +477,7 @@ function ActiveJobsBox({ jobs }: { jobs: any[] }) {
 
                   <div className="shrink-0 text-right">
                     <div className="text-xs font-black text-[#0f172a]">
-                      {formatCurrency(contractorNetAmount(payment))}
+                      {formatCurrency(Number(payment.project_amount ?? offer?.amount ?? 0))}
                     </div>
 
                     <SmallStatus status={project?.status ?? 'paid'} />
@@ -678,11 +622,8 @@ function relative(date: string, prefix: string) {
     1,
     Math.round((Date.now() - created) / (1000 * 60 * 60)),
   );
-
   if (diffHours < 24) return `${prefix} ${diffHours}h ago`;
-
   const diffDays = Math.round(diffHours / 24);
-
   return `${prefix} ${diffDays}d ago`;
 }
 

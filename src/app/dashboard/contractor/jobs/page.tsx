@@ -1,3 +1,5 @@
+export const dynamic = 'force-dynamic';
+
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
@@ -324,8 +326,8 @@ export default async function ContractorActiveJobsPage() {
 
                             <div className="mt-4 grid gap-3 md:grid-cols-3">
                               <InfoBlock label="Project amount" value={formatCurrency(gross)} />
-<InfoBlock label="Commitment fee paid separately" value={formatCurrency(fee)} />
-<InfoBlock label="Expected payout" value={formatCurrency(net)} strong />
+                              <InfoBlock label="Commitment fee" value={formatCurrency(fee)} />
+                              <InfoBlock label="Your payout" value={formatCurrency(gross)} strong />
                             </div>
 
                             <div className="mt-4 grid gap-3 lg:grid-cols-2">

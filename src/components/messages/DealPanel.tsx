@@ -1,3 +1,6 @@
+'use client';
+
+import { useState } from 'react';
 import type React from 'react';
 import Link from 'next/link';
 import { formatCurrency } from '@/lib/utils';
@@ -52,6 +55,21 @@ interface DealPanelProps {
     zip_code?: string | null;
   } | null;
 
+  /**
+   * Contractor public profile — always passed to homeowners so they can
+   * review the contractor before and during negotiation.
+   */
+  contractorProfileCard?: {
+    companyName: string | null;
+    bio: string | null;
+    ratingAvg: number | null;
+    ratingCount: number;
+    completedJobsCount: number;
+    yearsInBusiness: number | null;
+    verified: boolean;
+    reviews: Array<{ rating: number; comment: string | null; created_at: string }>;
+  } | null;
+
   offers: Array<{
     id: string;
     amount: number;
@@ -88,6 +106,18 @@ const NEGOTIATION_PROJECT_STATUSES = [
   'negotiating',
 ];
 
+const primaryBtn =
+  'inline-flex h-9 w-full items-center justify-center rounded-lg bg-[#f45112] px-3 text-xs font-black text-white shadow-sm transition hover:bg-[#d94406]';
+
+const secondaryBtn =
+  'inline-flex h-9 w-full items-center justify-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 shadow-sm transition hover:bg-slate-50';
+
+function readableStatus(value: string): string {
+  return String(value)
+    .replaceAll('_', ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
 export default function DealPanel({
   role,
   projectId,
@@ -100,6 +130,7 @@ export default function DealPanel({
   partnerId,
   partnerName,
   contractorContact,
+  contractorProfileCard,
   offers,
 }: DealPanelProps) {
   const normalizedStatus = projectStatus || 'open';
@@ -176,6 +207,11 @@ export default function DealPanel({
 
   const isChatUnlocked = CHAT_UNLOCKED_STATUSES.includes(normalizedStatus);
 
+  // The focus is the offer (not the finished project) while negotiating,
+  // waiting on payment, or after an offer expired - rename the CTA so it
+  // matches what the person is actually about to look at.
+  const hasActiveOffer = isNegotiating || isPendingPayment || hasExpiredDeal;
+
   const displayOffer =
     acceptedOffer ??
     pendingOffer ??
@@ -209,7 +245,7 @@ export default function DealPanel({
       : 'Homeowner hidden until checkout';
 
   return (
-    <aside className="space-y-4 lg:h-full lg:overflow-y-auto lg:pr-1">
+    <aside className="space-y-2.5 lg:h-full lg:overflow-y-auto lg:pr-1">
       <OverviewCard
         title={projectTitle}
         category={category}
@@ -217,6 +253,12 @@ export default function DealPanel({
         partnerName={visiblePartnerName}
         chatUnlocked={isChatUnlocked}
         status={normalizedStatus}
+        projectHref={projectHref}
+        hasActiveOffer={hasActiveOffer}
+        contractorContact={role === 'homeowner' ? contractorContact : null}
+        role={role}
+        partnerId={partnerId}
+        messagesHref={messagesHref}
       />
 
       {!isChatUnlocked && !isCancelled && (
@@ -250,17 +292,94 @@ export default function DealPanel({
         isCancelled={isCancelled}
         activeAmount={activeAmount}
         activeTimeline={activeTimeline}
-        contractorContact={contractorContact}
       />
 
-      {!isChatUnlocked && !isCancelled && (
-        <SmallInfoStrip>
-          Direct chat opens once the homeowner has paid and the contractor has
-          committed to the job. Until then, keep every offer structured: price,
-          timeline, included work, excluded work, and notes.
-        </SmallInfoStrip>
-      )}
     </aside>
+  );
+}
+
+function ContractorProfileCard({
+  profile,
+}: {
+  profile: NonNullable<DealPanelProps['contractorProfileCard']>;
+}) {
+  const stars = (n: number) => '★'.repeat(Math.round(n)) + '☆'.repeat(5 - Math.round(n));
+
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-600">
+            {(profile.companyName ?? '?').charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5">
+              <span className="truncate text-sm font-black text-slate-900">
+                {profile.companyName ?? 'Contractor'}
+              </span>
+              {profile.verified && (
+                <span className="shrink-0 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-black text-emerald-700">
+                  ✓ Verified
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 py-3 space-y-3">
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-lg bg-slate-50 px-2 py-2">
+            <div className="text-base font-black text-slate-900">{profile.completedJobsCount}</div>
+            <div className="text-[10px] font-semibold text-slate-500">Jobs done</div>
+          </div>
+          <div className="rounded-lg bg-slate-50 px-2 py-2">
+            <div className="text-base font-black text-slate-900">
+              {profile.ratingAvg !== null ? profile.ratingAvg.toFixed(1) : '—'}
+            </div>
+            <div className="text-[10px] font-semibold text-slate-500">
+              {profile.ratingCount > 0 ? `${profile.ratingCount} reviews` : 'No reviews'}
+            </div>
+          </div>
+          <div className="rounded-lg bg-slate-50 px-2 py-2">
+            <div className="text-base font-black text-slate-900">
+              {profile.yearsInBusiness !== null ? `${profile.yearsInBusiness}y` : '—'}
+            </div>
+            <div className="text-[10px] font-semibold text-slate-500">Experience</div>
+          </div>
+        </div>
+
+        {/* Bio */}
+        {profile.bio && (
+          <p className="text-xs leading-relaxed text-slate-600">{profile.bio}</p>
+        )}
+
+        {/* Reviews */}
+        {profile.reviews.length > 0 && (
+          <div className="space-y-2">
+            <div className="text-[11px] font-black uppercase tracking-wide text-slate-400">
+              Recent reviews
+            </div>
+            {profile.reviews.slice(0, 3).map((r, i) => (
+              <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] text-amber-500">{stars(r.rating)}</span>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                  </span>
+                </div>
+                {r.comment && (
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600 line-clamp-2">
+                    {r.comment}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -287,7 +406,6 @@ function NextStepCard({
   isCancelled,
   activeAmount,
   activeTimeline,
-  contractorContact,
 }: {
   role: 'homeowner' | 'contractor';
   projectId: string;
@@ -311,14 +429,6 @@ function NextStepCard({
   isCancelled: boolean;
   activeAmount: number;
   activeTimeline: number | null;
-  contractorContact?: {
-    phone?: string | null;
-    website?: string | null;
-    address_line?: string | null;
-    city?: string | null;
-    state?: string | null;
-    zip_code?: string | null;
-  } | null;
 }) {
   if (hasExpiredDeal) {
     const reusableOffer = findLatestReusableOffer([
@@ -355,47 +465,34 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="red">Expired deal</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           The previous offer expired
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           The old offer can no longer be accepted or paid. Start a fresh offer
-          so this conversation can continue through the normal marketplace
-          pipeline.
+          to continue.
         </p>
 
         {expiredAmount > 0 && (
-          <div className="mt-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-red-700">
+          <div className="mt-2.5 rounded-lg border border-red-100 bg-red-50 px-3 py-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700">
               Expired amount
             </div>
 
-            <div className="mt-1 text-2xl font-bold tracking-tight text-red-950">
+            <div className="mt-0.5 text-lg font-bold tracking-tight text-red-950">
               {formatCurrency(expiredAmount)}
             </div>
 
             {expiredTimeline ? (
-              <div className="mt-1 text-sm font-medium text-red-800">
+              <div className="text-xs font-medium text-red-800">
                 {expiredTimeline} days
               </div>
             ) : null}
           </div>
         )}
 
-        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-          <div className="text-sm font-semibold text-slate-950">
-            What happens next?
-          </div>
-
-          <p className="mt-1 text-sm leading-6 text-slate-600">
-            {role === 'homeowner'
-              ? 'You can reuse the previous request, edit the budget, included work or excluded work, and send it again.'
-              : 'Create a new contractor offer with fresh price, timeline, included work and excluded work. Once sent, the deal moves back into negotiation.'}
-          </p>
-        </div>
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
           {role === 'homeowner' ? (
             <MakeOfferButton
               projectId={projectId}
@@ -417,7 +514,7 @@ function NextStepCard({
           )}
 
           <Link href={projectHref} className={secondaryBtn}>
-            View project
+            View offer details
           </Link>
         </div>
       </PanelCard>
@@ -429,21 +526,21 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="amber">Next step</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           Payment required
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           {role === 'homeowner'
             ? 'Complete checkout to secure the deal and unlock direct messaging.'
-            : 'The offer has been accepted. Direct chat will open after the homeowner completes checkout.'}
+            : 'The offer has been accepted. Direct chat opens after checkout.'}
         </p>
 
         {activeAmount > 0 && (
           <OfferAmountBlock amount={activeAmount} timeline={activeTimeline} />
         )}
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
           {role === 'homeowner' ? (
             <>
               <Link href={checkoutHref} className={primaryBtn}>
@@ -451,12 +548,12 @@ function NextStepCard({
               </Link>
 
               <Link href={projectHref} className={secondaryBtn}>
-                View project
+                View offer details
               </Link>
             </>
           ) : (
             <Link href={projectHref} className={secondaryBtn}>
-              View project
+              View offer details
             </Link>
           )}
         </div>
@@ -470,21 +567,21 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="amber">Next step</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           {role === 'contractor' ? 'Claim this job' : 'Waiting for the contractor'}
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           {role === 'homeowner'
-            ? 'Your payment is held safely in bidAI escrow. The contractor now confirms the job by paying their commitment fee - direct chat opens as soon as they do. If they do not commit in time you are refunded in full.'
-            : 'The homeowner has paid and the funds are held in escrow. Pay your commitment fee to claim this job, unlock direct chat and start the work.'}
+            ? 'Payment is held in bidAI escrow. The contractor confirms by paying their commitment fee - chat opens as soon as they do, or you are refunded in full.'
+            : 'The homeowner has paid. Pay your commitment fee to claim this job and unlock direct chat.'}
         </p>
 
         {activeAmount > 0 && (
           <OfferAmountBlock amount={activeAmount} timeline={activeTimeline} />
         )}
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
           {role === 'contractor' ? (
             <Link href={commitHref} className={primaryBtn}>
               Pay commitment fee
@@ -495,7 +592,7 @@ function NextStepCard({
             href={projectHref}
             className={role === 'contractor' ? secondaryBtn : primaryBtn}
           >
-            View project
+            View project details
           </Link>
         </div>
       </PanelCard>
@@ -507,36 +604,21 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="green">Next step</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           Project in progress
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           {role === 'homeowner'
             ? 'The contractor has committed and the project is active. Mark it complete once the work is finished.'
-            : 'You have committed to this job and it is now active. Coordinate the work directly with the customer.'}
+            : 'You have committed to this job. Coordinate the work directly with the customer.'}
         </p>
 
         {activeAmount > 0 && (
           <OfferAmountBlock amount={activeAmount} timeline={activeTimeline} />
         )}
 
-        {role === 'homeowner' && contractorContact && (
-          <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3 space-y-1.5">
-            <div className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Contractor contact</div>
-            {contractorContact.phone && (
-              <a href={`tel:${contractorContact.phone}`} className="flex items-center gap-1.5 text-xs text-slate-700">📞 {contractorContact.phone}</a>
-            )}
-            {contractorContact.website && (
-              <a href={contractorContact.website} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs text-[#f45112]">🌐 {contractorContact.website.replace(/^https?:\/\//, '')}</a>
-            )}
-            {contractorContact.address_line && (
-              <div className="flex items-start gap-1.5 text-xs text-slate-600">📍 <span>{contractorContact.address_line}{contractorContact.city && `, ${contractorContact.city}`}{contractorContact.state && `, ${contractorContact.state}`}{contractorContact.zip_code && ` ${contractorContact.zip_code}`}</span></div>
-            )}
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
           <Link href={projectHref} className={primaryBtn}>
             {role === 'homeowner' ? 'Mark complete' : 'Open job'}
           </Link>
@@ -560,32 +642,17 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="green">Completed</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           Project completed
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           {role === 'homeowner'
             ? 'Funds have been released. You can now leave a review.'
             : 'This job is complete and saved in your history.'}
         </p>
 
-        {role === 'homeowner' && contractorContact && (
-          <div className="mt-3 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-3 space-y-1.5">
-            <div className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Contractor contact</div>
-            {contractorContact.phone && (
-              <a href={`tel:${contractorContact.phone}`} className="flex items-center gap-1.5 text-xs text-slate-700">📞 {contractorContact.phone}</a>
-            )}
-            {contractorContact.website && (
-              <a href={contractorContact.website} target="_blank" rel="noreferrer" className="flex items-center gap-1.5 text-xs text-[#f45112]">🌐 {contractorContact.website.replace(/^https?:\/\//, '')}</a>
-            )}
-            {contractorContact.address_line && (
-              <div className="flex items-start gap-1.5 text-xs text-slate-600">📍 <span>{contractorContact.address_line}{contractorContact.city && `, ${contractorContact.city}`}{contractorContact.state && `, ${contractorContact.state}`}{contractorContact.zip_code && ` ${contractorContact.zip_code}`}</span></div>
-            )}
-          </div>
-        )}
-
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
           {role === 'homeowner' ? (
             <Link href={projectHref} className={primaryBtn}>
               Leave review
@@ -597,7 +664,7 @@ function NextStepCard({
           )}
 
           <Link href={projectHref} className={secondaryBtn}>
-            View project
+            View project details
           </Link>
         </div>
       </PanelCard>
@@ -609,17 +676,17 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="slate">Closed</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           Deal cancelled
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           This conversation is closed. No further actions are available.
         </p>
 
-        <div className="mt-4">
+        <div className="mt-2.5">
           <Link href={projectHref} className={secondaryBtn}>
-            View project
+            View project details
           </Link>
         </div>
       </PanelCard>
@@ -676,7 +743,7 @@ function NextStepCard({
       <PanelCard>
         <SectionEyebrow tone="amber">Next step</SectionEyebrow>
 
-        <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+        <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
           {hasPendingOffer
             ? isWaitingForCurrentUser
               ? 'Offer needs your response'
@@ -684,19 +751,19 @@ function NextStepCard({
             : 'Start negotiation'}
         </h3>
 
-        <p className="mt-2 text-sm leading-6 text-slate-600">
+        <p className="mt-1.5 text-xs leading-5 text-slate-600">
           {hasPendingOffer
             ? isWaitingForCurrentUser
               ? 'Review the active offer and choose accept, counter, or decline.'
-              : 'The latest offer has been sent and is waiting for the other side to respond.'
+              : 'Waiting for the other side to respond.'
             : role === 'homeowner'
               ? 'Send a clear budget request to start the negotiation.'
               : 'Create a contractor offer to start the negotiation.'}
         </p>
 
         {currentAmount > 0 && (
-          <div className="mt-4">
-            <div className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+          <div className="mt-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-500">
               Current offer
             </div>
 
@@ -705,19 +772,19 @@ function NextStepCard({
         )}
 
         {hasPendingOffer && isWaitingForCurrentUser && (
-          <div className="mt-4 rounded-lg border border-amber-100 bg-amber-50 px-4 py-3">
-            <div className="text-sm font-semibold text-amber-900">
+          <div className="mt-2.5 rounded-lg border border-amber-100 bg-amber-50 px-3 py-2">
+            <div className="text-xs font-semibold text-amber-900">
               Response required
             </div>
 
-            <p className="mt-1 text-sm leading-6 text-amber-800">
-              Use the offer card in this deal room to accept, decline, or send a
-              counter offer. This keeps the negotiation structured and safe.
+            <p className="mt-0.5 text-[11px] leading-4 text-amber-800">
+              Use the offer card in the chat to accept, decline, or send a
+              counter offer.
             </p>
           </div>
         )}
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
+        <div className="mt-2.5 grid gap-1.5 sm:grid-cols-2">
           {role === 'homeowner' ? (
             <MakeOfferButton
               projectId={projectId}
@@ -739,7 +806,7 @@ function NextStepCard({
           )}
 
           <Link href={projectHref} className={secondaryBtn}>
-            View project
+            View offer details
           </Link>
         </div>
       </PanelCard>
@@ -754,18 +821,17 @@ function NextStepCard({
     <PanelCard>
       <SectionEyebrow tone="slate">Status</SectionEyebrow>
 
-      <h3 className="mt-2 text-lg font-bold tracking-tight text-slate-950">
+      <h3 className="mt-1.5 text-sm font-bold tracking-tight text-slate-950">
         Deal status unavailable
       </h3>
 
-      <p className="mt-2 text-sm leading-6 text-slate-600">
-        The project status is not recognized by this panel. You can still open
-        the project details to review the latest information.
+      <p className="mt-1.5 text-xs leading-5 text-slate-600">
+        Open the project details to review the latest information.
       </p>
 
-      <div className="mt-4">
+      <div className="mt-2.5">
         <Link href={projectHref} className={secondaryBtn}>
-          View project
+          View project details
         </Link>
       </div>
     </PanelCard>
@@ -779,6 +845,12 @@ function OverviewCard({
   partnerName,
   chatUnlocked,
   status,
+  projectHref,
+  hasActiveOffer,
+  contractorContact,
+  role,
+  partnerId,
+  messagesHref,
 }: {
   title: string;
   category: string | null;
@@ -786,50 +858,136 @@ function OverviewCard({
   partnerName: string;
   chatUnlocked: boolean;
   status: string;
+  projectHref: string;
+  hasActiveOffer: boolean;
+  contractorContact?: {
+    phone?: string | null;
+    website?: string | null;
+    address_line?: string | null;
+    city?: string | null;
+    state?: string | null;
+    zip_code?: string | null;
+  } | null;
+  role: 'homeowner' | 'contractor';
+  partnerId: string;
+  messagesHref: string;
 }) {
+  const [showContact, setShowContact] = useState(false);
   const pill = getStatusPill(status);
+  const topLabel = hasActiveOffer ? 'View offer details' : 'View project details';
+  const canRevealContact = chatUnlocked && Boolean(contractorContact);
+
+  // Profile link — only shown once chat is unlocked (job is active)
+  const profileHref =
+    role === 'homeowner'
+      ? `/dashboard/contractors/${partnerId}`
+      : `/dashboard/homeowner/profile/${partnerId}`;
 
   return (
     <PanelCard>
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
-            Deal room
+      {/* Pinned at the very top of the deal room - this is what both sides
+          should check carefully before accepting or paying anything. */}
+      <Link
+        href={projectHref}
+        className="mb-3 flex items-center justify-between gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-xs font-bold text-orange-800 transition hover:bg-orange-100"
+      >
+        <span>{topLabel}</span>
+        <span aria-hidden="true">→</span>
+      </Link>
+
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-500">
+              Deal room
+            </div>
+            <span
+              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${pill.tone}`}
+            >
+              {pill.label}
+            </span>
           </div>
 
-          <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950">
+          <h2 className="mt-1 truncate text-lg font-bold tracking-tight text-slate-950">
             {title}
           </h2>
 
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-0.5 text-xs text-slate-500">
             {category ?? 'Renovation'}
             {zip ? ` · ZIP ${zip}` : ''}
           </p>
 
-          <p className="mt-4 text-sm text-slate-600">
-            With{' '}
-            <span className="font-semibold text-slate-900">{partnerName}</span>
-          </p>
+          <div className="mt-2">
+            {canRevealContact ? (
+              <button
+                type="button"
+                onClick={() => setShowContact((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-orange-700"
+              >
+                With{' '}
+                <span className="font-semibold text-slate-900 underline decoration-dotted decoration-slate-400">
+                  {partnerName}
+                </span>
+                <span className="text-[9px]">{showContact ? '▲' : '▼'}</span>
+              </button>
+            ) : (
+              <p className="text-xs text-slate-600">
+                With{' '}
+                <span className="font-semibold text-slate-900">{partnerName}</span>
+              </p>
+            )}
+          </div>
 
           {!chatUnlocked && (
-            <p className="mt-2 text-sm text-slate-500">
-              Contact details and direct chat unlock once the contractor
-              commits to the job.
+            <p className="mt-1 text-[11px] leading-4 text-slate-500">
+              Contact details unlock once the contractor commits to the job.
             </p>
           )}
-        </div>
 
-        <div className="grid h-12 w-12 shrink-0 place-items-center rounded-lg bg-slate-50 text-lg">
-          🏠
-        </div>
-      </div>
+          {showContact && contractorContact && (
+            <div className="mt-2 space-y-1 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2">
+              {contractorContact.phone && (
+                <a
+                  href={`tel:${contractorContact.phone}`}
+                  className="flex items-center gap-1.5 text-xs text-slate-700"
+                >
+                  📞 {contractorContact.phone}
+                </a>
+              )}
+              {contractorContact.website && (
+                <a
+                  href={contractorContact.website}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1.5 text-xs text-[#f45112]"
+                >
+                  🌐 {contractorContact.website.replace(/^https?:\/\//, '')}
+                </a>
+              )}
+              {contractorContact.address_line && (
+                <div className="flex items-start gap-1.5 text-xs text-slate-600">
+                  📍{' '}
+                  <span>
+                    {contractorContact.address_line}
+                    {contractorContact.city && `, ${contractorContact.city}`}
+                    {contractorContact.state && `, ${contractorContact.state}`}
+                    {contractorContact.zip_code && ` ${contractorContact.zip_code}`}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
 
-      <div className="mt-5">
-        <span
-          className={`inline-flex items-center rounded-full px-3 py-1.5 text-xs font-semibold ${pill.tone}`}
-        >
-          {pill.label}
-        </span>
+          {/* View full profile — always shown in a conversation context */}
+          <div className="mt-2">
+            <Link
+              href={profileHref}
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-orange-600 hover:underline"
+            >
+              👤 View profile →
+            </Link>
+          </div>
+        </div>
       </div>
     </PanelCard>
   );
@@ -850,51 +1008,30 @@ function MarketplaceRuleCard({
   const statusLine =
     projectStatus === 'paid'
       ? role === 'contractor'
-        ? `The homeowner has paid. Your ${feePct}% commitment fee is now required to claim the job.`
-        : 'Your payment is held in escrow. The contractor must now confirm the job by paying their commitment fee.'
+        ? `Homeowner paid. Pay your ${feePct}% commitment fee to claim the job.`
+        : 'Payment held in escrow. Contractor must pay their commitment fee to unlock chat.'
       : projectStatus === 'pending_payment' || projectStatus === 'awarded'
         ? role === 'homeowner'
-          ? 'After you complete checkout, the contractor must still confirm the job before direct chat opens.'
-          : 'The homeowner accepted the offer, but the job is not active until checkout is completed.'
+          ? 'After checkout, the contractor still needs to confirm before chat opens.'
+          : 'Offer accepted, but not active until the homeowner completes checkout.'
         : role === 'contractor'
-          ? `If the homeowner accepts and pays, you will pay a ${feePct}% commitment fee before the job starts.`
-          : 'If you accept an offer, you pay first; then the contractor must confirm the job before direct chat opens.';
+          ? `You'll pay a ${feePct}% commitment fee if the homeowner accepts and pays.`
+          : `Accept → you pay first → contractor pays a ${feePct}% fee to confirm → chat opens.`;
 
   return (
     <PanelCard>
-      <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-orange-600">
-        Marketplace rule
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-orange-600">
+          Marketplace rule
+        </div>
+        {role === 'contractor' && amount > 0 && (
+          <span className="rounded-full bg-orange-50 px-2 py-0.5 text-[10px] font-black text-orange-700">
+            Est. fee {formatCurrency(fee)}
+          </span>
+        )}
       </div>
 
-      <h3 className="mt-2 text-base font-black tracking-tight text-slate-950">
-        Payment has two steps
-      </h3>
-
-      <p className="mt-2 text-sm leading-6 text-slate-600">{statusLine}</p>
-
-      <div className="mt-4 grid gap-2 text-xs font-semibold text-slate-600">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          1. Homeowner accepts an offer and completes bidAI checkout.
-        </div>
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-          2. Contractor pays the {feePct}% commitment fee to claim the job and
-          unlock direct chat.
-        </div>
-      </div>
-
-      {role === 'contractor' && amount > 0 && (
-        <div className="mt-4 rounded-xl border border-orange-200 bg-orange-50 px-3 py-2">
-          <div className="text-[11px] font-black uppercase tracking-wide text-orange-700">
-            Estimated contractor fee
-          </div>
-          <div className="mt-1 text-lg font-black text-orange-950">
-            {formatCurrency(fee)}
-          </div>
-          <p className="mt-1 text-xs leading-5 text-orange-900">
-            Charged only after the homeowner pays and you claim the job.
-          </p>
-        </div>
-      )}
+      <p className="mt-1.5 text-xs leading-5 text-slate-600">{statusLine}</p>
     </PanelCard>
   );
 }
@@ -908,12 +1045,12 @@ function OfferAmountBlock({
 }) {
   return (
     <div className="mt-1">
-      <div className="text-2xl font-bold tracking-tight text-slate-950">
+      <div className="text-xl font-bold tracking-tight text-slate-950">
         {formatCurrency(amount)}
       </div>
 
       {timeline ? (
-        <div className="mt-1 text-sm text-slate-500">{timeline} days</div>
+        <div className="text-xs text-slate-500">{timeline} days</div>
       ) : null}
     </div>
   );
@@ -921,7 +1058,7 @@ function OfferAmountBlock({
 
 function PanelCard({ children }: { children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
       {children}
     </section>
   );
@@ -943,18 +1080,10 @@ function SectionEyebrow({
 
   return (
     <span
-      className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-semibold ${tones[tone]}`}
+      className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${tones[tone]}`}
     >
       {children}
     </span>
-  );
-}
-
-function SmallInfoStrip({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-600">
-      {children}
-    </div>
   );
 }
 
@@ -1016,18 +1145,10 @@ function findLatestReusableOffer(
   offers: Array<DealPanelProps['offers'][number] | null | undefined>,
 ): DealPanelProps['offers'][number] | null {
   const reusableKinds = [
-    /**
-     * Current offer-centered names.
-     */
     'budget_offer',
     'contractor_offer',
     'counter_offer',
     'quick_offer',
-
-    /**
-     * Legacy names from earlier versions.
-     * Keep temporarily until data migration is complete.
-     */
     'homeowner_budget',
     'contractor_quote',
     'homeowner_counter',
@@ -1041,12 +1162,6 @@ function findLatestReusableOffer(
     'expired',
     'rejected',
     'withdrawn',
-
-    /**
-     * Legacy statuses.
-     * Long-term, payment_pending and paid should live on projects/payments,
-     * not offers.
-     */
     'payment_pending',
     'paid',
   ];
@@ -1065,7 +1180,6 @@ function findLatestReusableOffer(
   return [...validOffers].sort((a, b) => {
     const aTime = a.created_at ? new Date(a.created_at).getTime() : 0;
     const bTime = b.created_at ? new Date(b.created_at).getTime() : 0;
-
     return bTime - aTime;
   })[0];
 }
@@ -1075,17 +1189,9 @@ function parseOfferMessage(message?: string | null): {
   included: string[];
   excluded: string[];
 } {
-  if (!message) {
-    return {
-      message: null,
-      included: [],
-      excluded: [],
-    };
-  }
-
+  if (!message) return { message: null, included: [], excluded: [] };
   try {
     const parsed = JSON.parse(message);
-
     return {
       message: typeof parsed.message === 'string' ? parsed.message : null,
       included: Array.isArray(parsed.included)
@@ -1096,37 +1202,19 @@ function parseOfferMessage(message?: string | null): {
         : [],
     };
   } catch {
-    return {
-      message,
-      included: [],
-      excluded: [],
-    };
+    return { message, included: [], excluded: [] };
   }
 }
 
 function parseOfferScope(
   offer?: DealPanelProps['offers'][number] | null,
-): {
-  included: string[];
-  excluded: string[];
-} {
-  if (!offer) {
-    return {
-      included: [],
-      excluded: [],
-    };
-  }
-
+): { included: string[]; excluded: string[] } {
+  if (!offer) return { included: [], excluded: [] };
   const includedFromArray = normalizeItems(offer.included_items);
   const excludedFromArray = normalizeItems(offer.excluded_items);
-
   if (includedFromArray.length > 0 || excludedFromArray.length > 0) {
-    return {
-      included: includedFromArray,
-      excluded: excludedFromArray,
-    };
+    return { included: includedFromArray, excluded: excludedFromArray };
   }
-
   return parseScopeSummary(offer.scope_summary);
 }
 
@@ -1134,82 +1222,35 @@ function parseScopeSummary(scopeSummary?: string | null): {
   included: string[];
   excluded: string[];
 } {
-  if (!scopeSummary) {
-    return {
-      included: [],
-      excluded: [],
-    };
-  }
-
-  const lines = scopeSummary
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean);
-
+  if (!scopeSummary) return { included: [], excluded: [] };
+  const lines = scopeSummary.split('\n').map((line) => line.trim()).filter(Boolean);
   const included: string[] = [];
   const excluded: string[] = [];
-
   let mode: 'included' | 'excluded' | null = null;
-
   for (const line of lines) {
     const lower = line.toLowerCase();
-
-    if (lower.startsWith('included')) {
-      mode = 'included';
-      continue;
-    }
-
-    if (lower.startsWith('excluded')) {
-      mode = 'excluded';
-      continue;
-    }
-
+    if (lower.startsWith('included')) { mode = 'included'; continue; }
+    if (lower.startsWith('excluded')) { mode = 'excluded'; continue; }
     const cleaned = line.replace(/^[-•]\s*/, '').trim();
-
     if (!cleaned) continue;
-
     if (mode === 'included') included.push(cleaned);
     if (mode === 'excluded') excluded.push(cleaned);
   }
-
-  return {
-    included,
-    excluded,
-  };
+  return { included, excluded };
 }
 
 function normalizeItems(value?: string[] | string | null): string[] {
   if (!value) return [];
-
   if (Array.isArray(value)) {
     return value.map((item) => String(item).trim()).filter(Boolean);
   }
-
   return String(value)
     .split(/\n|,|;|•/)
-    .map((item) => item.replace(/^[-–—]\s*/, '').trim())
+    .map((item) => item.replace(/^[-\u2013\u2014]\s*/, '').trim())
     .filter(Boolean)
     .filter((item) => {
       const lowered = item.toLowerCase();
-
-      return ![
-        'not specified',
-        'no exclusions listed',
-        'no additional notes',
-      ].includes(lowered);
+      return !['not specified', 'no exclusions listed', 'no additional notes'].includes(lowered);
     });
 }
 
-function readableStatus(status: string): string {
-  if (!status) return 'Unknown';
-
-  return status
-    .replaceAll('_', ' ')
-    .replace(/^./, (char) => char.toUpperCase());
-}
-
-const primaryBtn =
-  'inline-flex min-h-11 items-center justify-center rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800';
-
-const secondaryBtn =
-  'inline-flex min-h-11 items-center justify-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50';

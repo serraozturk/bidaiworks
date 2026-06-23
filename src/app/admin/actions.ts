@@ -1,12 +1,17 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { getAdminUser } from '@/lib/admin';
 import { createAdminClient } from '@/lib/supabase/admin';
 import {
   notifyDisputeResolved,
   notifySupportReplyFromAdmin,
   notifySupportReportResolved,
+  notifyContractorVerified,
+  notifyContractorRejected,
+  notifyUserModerationWarning,
+  notifyUserSuspended,
 } from '@/lib/notifications';
 
 /** Every admin action re-checks the email allowlist before mutating. */
@@ -118,6 +123,9 @@ export async function setContractorVerified(formData: FormData) {
       : 'Admin removed contractor verification',
     detail: { contractor_id: id },
   });
+  if (verified) {
+    await notifyContractorVerified(id);
+  }
   revalidatePath('/admin/contractors');
   revalidatePath(`/admin/contractors/${id}`);
   revalidatePath('/admin/operations');
@@ -144,6 +152,7 @@ export async function rejectContractor(formData: FormData) {
     summary: `Admin ${status} contractor`,
     detail: { contractor_id: id, reason },
   });
+  await notifyContractorRejected(id, reason, status);
   revalidatePath('/admin/contractors');
   revalidatePath(`/admin/contractors/${id}`);
 }
@@ -171,6 +180,9 @@ export async function setUserSuspended(formData: FormData) {
   });
   revalidatePath('/admin/contractors');
   revalidatePath(`/admin/contractors/${id}`);
+  revalidatePath('/admin/users');
+  revalidatePath(`/admin/users/${id}`);
+  revalidatePath('/admin');
   revalidatePath('/admin/operations');
 }
 
@@ -732,6 +744,115 @@ export async function setUserMessagingDisabled(formData: FormData) {
   revalidatePath('/admin/flags');
 }
 
+/**
+ * Send a formal warning email to the user linked to a flag, then close it.
+ * Does NOT suspend the account — lighter consequence.
+ */
+export async function warnUserFromFlag(formData: FormData) {
+  const admin = await requireAdmin();
+  const flagId = String(formData.get('flagId') ?? '').trim();
+  const userId = String(formData.get('userId') ?? '').trim();
+  const userRole = String(formData.get('userRole') ?? '').trim();
+  const reason = String(formData.get('reason') ?? '').trim() || 'Policy violation flagged by admin';
+  if (!flagId || !userId) return;
+
+  const db = createAdminClient();
+  const now = new Date().toISOString();
+
+  // Close the flag
+  await db
+    .from('admin_flags')
+    .update({
+      status: 'actioned',
+      handled_by: admin.id,
+      admin_note: `Warning sent: ${reason}`,
+      resolved_at: now,
+    })
+    .eq('id', flagId);
+
+  // Send warning email
+  await notifyUserModerationWarning(userId, reason);
+
+  await logAdminEvent({
+    adminId: admin.id,
+    eventType: 'admin_user_warned',
+    summary: 'Admin sent moderation warning to user',
+    detail: { flag_id: flagId, user_id: userId, reason },
+  });
+
+  revalidatePath('/admin/flags');
+  revalidatePath('/admin');
+
+  // Take admin directly to the user's page so they see the result
+  const dest = userRole === 'contractor'
+    ? `/admin/contractors/${userId}`
+    : `/admin/users/${userId}`;
+  redirect(dest);
+}
+
+/**
+ * Suspend the user linked to a flag, send notification, then close the flag.
+ */
+export async function suspendUserFromFlag(formData: FormData) {
+  const admin = await requireAdmin();
+  const flagId = String(formData.get('flagId') ?? '').trim();
+  const userId = String(formData.get('userId') ?? '').trim();
+  const userRole = String(formData.get('userRole') ?? '').trim();
+  const reason = String(formData.get('reason') ?? '').trim() || 'Account suspended due to policy violation';
+  if (!flagId || !userId) return;
+
+  const db = createAdminClient();
+  const now = new Date().toISOString();
+
+  // Suspend the account in profiles table
+  await db
+    .from('profiles')
+    .update({
+      suspended: true,
+      suspended_at: now,
+      suspension_reason: reason,
+    })
+    .eq('id', userId);
+
+  // Also suspend contractor_profiles verification_status if they are a contractor
+  await db
+    .from('contractor_profiles')
+    .update({ verification_status: 'suspended' })
+    .eq('user_id', userId);
+
+  // Close the flag
+  await db
+    .from('admin_flags')
+    .update({
+      status: 'actioned',
+      handled_by: admin.id,
+      admin_note: `User suspended: ${reason}`,
+      resolved_at: now,
+    })
+    .eq('id', flagId);
+
+  // Send suspension notification email
+  await notifyUserSuspended(userId, reason);
+
+  await logAdminEvent({
+    adminId: admin.id,
+    eventType: 'admin_user_suspended',
+    summary: 'Admin suspended user via flag action',
+    detail: { flag_id: flagId, user_id: userId, reason },
+  });
+
+  revalidatePath('/admin/flags');
+  revalidatePath('/admin/contractors');
+  revalidatePath(`/admin/contractors/${userId}`);
+  revalidatePath('/admin');
+
+  // Take admin directly to the user's page so they see the account is now suspended
+  const dest = userRole === 'contractor'
+    ? `/admin/contractors/${userId}`
+    : `/admin/users/${userId}`;
+  redirect(dest);
+}
+
 /** Manually open an admin_flags case (used from inside reviews / cases). */
 export async function createFlag(formData: FormData) {
   const admin = await requireAdmin();
@@ -767,7 +888,32 @@ export async function createFlag(formData: FormData) {
   revalidatePath('/admin/flags');
 }
 
-/** Close a flag without taking platform action ("looked at — nothing to do"). */
+function lines(value: FormDataEntryValue | null): string[] {
+  return String(value ?? '')
+    .split(/\r?\n|,/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function numberOrNull(value: FormDataEntryValue | null): number | null {
+  const clean = String(value ?? '').trim();
+  if (!clean) return null;
+  const number = Number(clean);
+  return Number.isFinite(number) ? number : null;
+}
+
+function boolValue(formData: FormData, key: string, fallback: boolean): boolean {
+  const values = formData.getAll(key);
+  if (values.length === 0) return fallback;
+  return String(values[values.length - 1]) === 'true';
+}
+
+function toKey(value: string): string {
+  return value.trim().toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
 export async function dismissFlag(formData: FormData) {
   const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '').trim();
@@ -795,59 +941,36 @@ export async function dismissFlag(formData: FormData) {
   revalidatePath('/admin/flags');
 }
 
-/** Close a flag and mark that platform action was taken (suspended, redacted, etc.). */
 export async function actionFlag(formData: FormData) {
   const admin = await requireAdmin();
   const id = String(formData.get('id') ?? '').trim();
   const note = String(formData.get('note') ?? '').trim() || null;
+  const userId = String(formData.get('userId') ?? '').trim() || null;
   if (!id) return;
 
   const db = createAdminClient();
+  const now = new Date().toISOString();
   await db
     .from('admin_flags')
     .update({
       status: 'actioned',
       handled_by: admin.id,
-      admin_note: note,
-      resolved_at: new Date().toISOString(),
+      admin_note: note ?? 'Actioned by admin',
+      resolved_at: now,
     })
     .eq('id', id);
+
+  if (userId && note) {
+    await notifyUserModerationWarning(userId, note);
+  }
 
   await logAdminEvent({
     adminId: admin.id,
     eventType: 'admin_flag_actioned',
-    summary: 'Admin actioned and closed a flag',
-    detail: { flag_id: id, note },
+    summary: 'Admin marked flag as actioned',
+    detail: { flag_id: id, note, user_id: userId },
   });
 
   revalidatePath('/admin/flags');
-}
-
-function lines(value: FormDataEntryValue | null): string[] {
-  return String(value ?? '')
-    .split(/\r?\n|,/)
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
-function numberOrNull(value: FormDataEntryValue | null): number | null {
-  const clean = String(value ?? '').trim();
-  if (!clean) return null;
-  const number = Number(clean);
-  return Number.isFinite(number) ? number : null;
-}
-
-function boolValue(formData: FormData, key: string, fallback: boolean): boolean {
-  const values = formData.getAll(key);
-  if (values.length === 0) return fallback;
-  return String(values[values.length - 1]) === 'true';
-}
-
-function toKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/&/g, 'and')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
+  revalidatePath('/admin');
 }

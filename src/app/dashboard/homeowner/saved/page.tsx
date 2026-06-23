@@ -5,6 +5,8 @@ import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { Badge } from '@/components/ui/Badge';
 import { countUnreadConversations } from '@/lib/unread';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Homeowner contractors directory. Lists every contractor on the platform that
  * matches the homeowner's project ZIPs/categories first, then everyone else
@@ -40,13 +42,13 @@ export default async function HomeownerContractorsPage() {
   return (
     <div className="min-h-screen bg-[#f8fafc] text-[#0f172a]">
       <div className="flex min-h-screen">
-        <DashboardSidebar role="homeowner" active="saved" messageCount={conversationCount} />
+        <DashboardSidebar role="homeowner" active="contractors" messageCount={conversationCount} />
 
         <main className="min-w-0 flex-1">
           <div className="mx-auto max-w-[1200px] px-6 py-8">
             <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
               <div>
-                <p className="text-xs font-black uppercase tracking-wide text-[#f4510b]">Saved contractors</p>
+                <p className="text-xs font-black uppercase tracking-wide text-[#f4510b]">Contractors</p>
                 <h1 className="mt-1 text-3xl font-black">Browse contractors</h1>
                 <p className="mt-1 text-sm text-slate-500">
                   Tap any company to see their full profile, ratings, and recent reviews.
@@ -135,8 +137,8 @@ function ContractorCard({
         <Link href={profileHref} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-center text-xs font-black text-[#0f172a] hover:bg-slate-50">
           View profile
         </Link>
-        <Link href={messageHref} className="rounded-xl bg-[#f4510b] px-3 py-2 text-center text-xs font-black text-white hover:bg-[#d94406]">
-          Message
+        <Link href={profileHref} className="rounded-xl bg-[#f4510b] px-3 py-2 text-center text-xs font-black text-white hover:bg-[#d94406]">
+          Send Budget Request
         </Link>
       </div>
     </article>

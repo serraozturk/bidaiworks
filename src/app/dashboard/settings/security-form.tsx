@@ -6,9 +6,11 @@ import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 
 export default function SecurityForm() {
   const router = useRouter();
+  const { confirm, ConfirmDialogNode } = useConfirm();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [busy, setBusy] = useState<'password' | 'sessions' | null>(null);
@@ -49,9 +51,13 @@ export default function SecurityForm() {
   }
 
   async function signOutEverywhere() {
-    if (!confirm('Sign out from this browser and all other active sessions?')) {
-      return;
-    }
+    const ok = await confirm({
+      title: 'Sign out all sessions?',
+      message: 'This will sign you out from this browser and all other active sessions.',
+      confirmLabel: 'Sign out all',
+      tone: 'warning',
+    });
+    if (!ok) return;
 
     setBusy('sessions');
     setMessage(null);
@@ -72,6 +78,8 @@ export default function SecurityForm() {
   }
 
   return (
+    <>
+    {ConfirmDialogNode}
     <div className="space-y-5">
       <form onSubmit={updatePassword} className="space-y-4">
         <Input
@@ -129,5 +137,6 @@ export default function SecurityForm() {
         </Button>
       </div>
     </div>
+    </>
   );
 }

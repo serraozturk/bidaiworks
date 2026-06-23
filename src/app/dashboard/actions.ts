@@ -146,7 +146,12 @@ export async function raiseDispute(formData: FormData) {
 
   const projectId = String(formData.get('projectId') ?? '').trim();
   const reason = String(formData.get('reason') ?? '').trim();
-  const backTo = String(formData.get('backTo') ?? '/dashboard').trim() || '/dashboard';
+  // Validate backTo is an internal relative path to prevent open redirect.
+  const rawBackTo = String(formData.get('backTo') ?? '').trim();
+  const backTo =
+    rawBackTo.startsWith('/') && !rawBackTo.startsWith('//')
+      ? rawBackTo
+      : '/dashboard';
   const category = String(formData.get('category') ?? 'work_quality').trim() || 'work_quality';
   const requestedResolution =
     String(formData.get('requestedResolution') ?? '').trim() || null;
@@ -155,6 +160,18 @@ export async function raiseDispute(formData: FormData) {
   if (!projectId || !reason) {
     redirect(`${backTo}?dispute_error=1`);
   }
+
+  // Map dispute category to an appropriate priority level.
+  const priorityByCategory: Record<string, string> = {
+    payment_dispute: 'urgent',
+    safety_concern: 'urgent',
+    fraud: 'urgent',
+    work_quality: 'normal',
+    timeline: 'normal',
+    communication: 'low',
+    other: 'normal',
+  };
+  const priority = priorityByCategory[category] ?? 'normal';
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -181,7 +198,7 @@ export async function raiseDispute(formData: FormData) {
       raised_by: user.id,
       raised_by_role: profile?.role ?? null,
       category,
-      priority: 'urgent',
+      priority,
       requested_resolution: requestedResolution,
       evidence_summary: evidenceSummary,
       reason,

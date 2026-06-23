@@ -218,6 +218,7 @@ export default async function HomeownerProjectDetail({
   const displayOffers = buildLatestDisplayOffers(offerRows, contractorById);
 
   const status = String(project.status ?? 'open');
+  const moderationStatus = String(project.moderation_status ?? 'pending');
 
   const selectedOfferId =
     project.selected_offer_id ?? project.awarded_offer_id ?? null;
@@ -330,6 +331,7 @@ export default async function HomeownerProjectDetail({
                   state={project.state}
                   createdAt={project.created_at}
                   status={status}
+                  moderationStatus={moderationStatus}
                   photos={projectPhotos}
                   offerCount={displayOffers.length}
                   needsReviewCount={needsReviewCount}
@@ -366,6 +368,8 @@ export default async function HomeownerProjectDetail({
                 <StatusPanel
                   projectId={project.id}
                   status={status}
+                  moderationStatus={moderationStatus}
+                  moderationNote={project.moderation_note}
                   selectedOffer={selectedOffer}
                   selectedContractor={selectedContractor}
                   paymentPendingOffer={paymentPendingOffer ?? null}
@@ -635,6 +639,7 @@ function ProjectHeader({
   state,
   createdAt,
   status,
+  moderationStatus,
   photos,
   offerCount,
   needsReviewCount,
@@ -646,6 +651,7 @@ function ProjectHeader({
   state: string | null;
   createdAt: string;
   status: string;
+  moderationStatus?: string;
   photos: any[];
   offerCount: number;
   needsReviewCount: number;
@@ -678,7 +684,7 @@ function ProjectHeader({
                   {title}
                 </h1>
 
-                <ProjectStatusBadge status={status} />
+                <ProjectStatusBadge status={status} moderationStatus={moderationStatus} />
               </div>
 
               <p className="mt-2 text-sm font-semibold text-slate-500">
@@ -880,12 +886,16 @@ function PhotoGallery({ photos }: { photos: any[] }) {
 function StatusPanel({
   projectId,
   status,
+  moderationStatus,
+  moderationNote,
   selectedOffer,
   selectedContractor,
   paymentPendingOffer,
 }: {
   projectId: string;
   status: string;
+  moderationStatus?: string;
+  moderationNote?: string | null;
   selectedOffer: OfferRow | null;
   selectedContractor: ContractorProfile | null;
   paymentPendingOffer: DisplayOffer | null;
@@ -899,10 +909,25 @@ function StatusPanel({
           </div>
 
           <div className="mt-2">
-            <ProjectStatusBadge status={status} />
+            <ProjectStatusBadge status={status} moderationStatus={moderationStatus} />
           </div>
         </div>
       </div>
+
+      {moderationStatus === 'pending' && status === 'open' && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-800">
+          <strong className="font-black">Your project is being reviewed.</strong>{' '}
+          Our team checks every new request before contractors can see it. This
+          usually takes a few hours — you'll see it move to "Open" once approved.
+        </div>
+      )}
+
+      {moderationStatus === 'rejected' && status === 'open' && (
+        <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm leading-6 text-red-700">
+          <strong className="font-black">This project was not approved.</strong>{' '}
+          {moderationNote ? moderationNote : 'Contact support for details.'}
+        </div>
+      )}
 
       {selectedOffer && selectedContractor ? (
         <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
@@ -1517,7 +1542,23 @@ function normalizeItems(value: string[] | string | null | undefined): string[] {
     });
 }
 
-function ProjectStatusBadge({ status }: { status: string }) {
+function ProjectStatusBadge({
+  status,
+  moderationStatus,
+}: {
+  status: string;
+  moderationStatus?: string;
+}) {
+  // Show review state to the homeowner before the project is approved -
+  // contractors cannot see it yet, so "Open" would be misleading.
+  if (status === 'open' && moderationStatus === 'pending') {
+    return <Badge tone="warning">Reviewing</Badge>;
+  }
+
+  if (status === 'open' && moderationStatus === 'rejected') {
+    return <Badge tone="default">Not approved</Badge>;
+  }
+
   if (status === 'pending_payment') {
     return <Badge tone="warning">Payment pending</Badge>;
   }

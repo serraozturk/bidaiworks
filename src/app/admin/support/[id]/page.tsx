@@ -194,6 +194,14 @@ export default async function AdminSupportDetailPage({ params }: Params) {
                   Open contractor profile →
                 </Link>
               )}
+              {reporterProfile?.role === 'homeowner' && (
+                <Link
+                  href={`/admin/users/${report.reporter_id}`}
+                  className="mt-2 inline-flex h-9 items-center rounded-lg border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 hover:bg-slate-50"
+                >
+                  Open homeowner profile →
+                </Link>
+              )}
             </div>
           </Panel>
 

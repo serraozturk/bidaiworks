@@ -6,7 +6,7 @@ import DealPanel from '@/components/messages/DealPanel';
 import ConversationList, {
   type ConversationItem,
 } from '@/components/messages/ConversationList';
-import { DashboardSidebar } from '@/components/DashboardSidebar';
+import { CollapsibleSidebar } from '@/components/messages/CollapsibleSidebar';
 
 interface Params {
   params: {
@@ -82,6 +82,19 @@ export default async function MessagesPage({ params }: Params) {
 
   if (!conv) {
     if (!project || project.homeowner_id !== homeownerId) {
+      notFound();
+    }
+
+    // Verify the partnerId is actually a verified contractor before creating
+    // a conversation — prevents creating ghost conversations with random user IDs.
+    const { data: contractorCheck } = await supabase
+      .from('contractor_profiles')
+      .select('user_id')
+      .eq('user_id', contractorId)
+      .eq('verified', true)
+      .maybeSingle();
+
+    if (!contractorCheck) {
       notFound();
     }
 
@@ -448,7 +461,7 @@ export default async function MessagesPage({ params }: Params) {
 
   const reservedOffer = awardedOffer ?? selectedOffer ?? paymentPendingOffer;
 
-  // Fetch contractor contact details — only for homeowners on in_progress/completed projects
+  // Fetch contractor profile + contact details + reviews (homeowner only)
   const projectStatusForContact = project?.status ?? 'open';
   let contractorContact: {
     phone?: string | null;
@@ -459,31 +472,76 @@ export default async function MessagesPage({ params }: Params) {
     zip_code?: string | null;
   } | null = null;
 
-  if (
-    role === 'homeowner' &&
-    (projectStatusForContact === 'in_progress' || projectStatusForContact === 'completed')
-  ) {
-    const { data: cpContact } = await supabase
-      .from('contractor_profiles')
-      .select('phone, website, address_line, city, state, zip_code')
-      .eq('user_id', contractorId)
-      .maybeSingle();
-    if (cpContact) contractorContact = cpContact;
+  let contractorProfileCard: {
+    companyName: string | null;
+    bio: string | null;
+    ratingAvg: number | null;
+    ratingCount: number;
+    completedJobsCount: number;
+    yearsInBusiness: number | null;
+    verified: boolean;
+    reviews: Array<{ rating: number; comment: string | null; created_at: string }>;
+  } | null = null;
+
+  if (role === 'homeowner') {
+    const [cpResult, reviewsResult, completedResult] = await Promise.all([
+      supabase
+        .from('contractor_profiles')
+        .select('company_name, bio, rating_avg, rating_count, years_in_business, verified, phone, website, address_line, city, state, zip_code')
+        .eq('user_id', contractorId)
+        .maybeSingle(),
+      supabase
+        .from('reviews')
+        .select('rating, comment, created_at')
+        .eq('contractor_id', contractorId)
+        .order('created_at', { ascending: false })
+        .limit(5),
+      supabase
+        .from('projects')
+        .select('id, offers!inner(sender_id)')
+        .eq('status', 'completed')
+        .eq('offers.sender_id', contractorId),
+    ]);
+
+    const cp = cpResult.data;
+    if (cp) {
+      contractorProfileCard = {
+        companyName: cp.company_name ?? null,
+        bio: cp.bio ?? null,
+        ratingAvg: cp.rating_count > 0 ? Number(cp.rating_avg) : null,
+        ratingCount: cp.rating_count ?? 0,
+        completedJobsCount: (completedResult.data ?? []).length,
+        yearsInBusiness: cp.years_in_business ?? null,
+        verified: Boolean(cp.verified),
+        reviews: (reviewsResult.data ?? []) as Array<{ rating: number; comment: string | null; created_at: string }>,
+      };
+
+      if (projectStatusForContact === 'in_progress' || projectStatusForContact === 'completed') {
+        contractorContact = {
+          phone: cp.phone,
+          website: cp.website,
+          address_line: cp.address_line,
+          city: cp.city,
+          state: cp.state,
+          zip_code: cp.zip_code,
+        };
+      }
+    }
   }
 
   return (
     <div className="h-screen overflow-hidden bg-[#f6f8fb] text-ink-900">
-      <div className="flex h-full">
-        <DashboardSidebar
-          role={role}
-          active="messages"
-          messageCount={messageCount}
-          offerCount={offerCount}
-        />
+      <CollapsibleSidebar
+        role={role}
+        active="messages"
+        messageCount={messageCount}
+        offerCount={offerCount}
+      />
 
+      <div className="flex h-full">
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="min-h-0 flex-1 overflow-hidden px-2 py-3 lg:px-3 xl:px-4">
-            <div className="mx-auto grid h-full w-full max-w-none gap-3 lg:grid-cols-[280px_minmax(0,1fr)_280px] xl:grid-cols-[290px_minmax(0,1fr)_290px]">
+          <div className="min-h-0 flex-1 overflow-hidden px-2 py-3 pl-14 lg:px-3 lg:pl-14 xl:px-4 xl:pl-16">
+            <div className="mx-auto grid h-full w-full max-w-none gap-3 lg:grid-cols-[260px_minmax(0,1fr)_340px] xl:grid-cols-[270px_minmax(0,1fr)_380px]">
               <aside className="hidden min-h-0 flex-col overflow-visible rounded-lg border border-slate-200/80 bg-white shadow-[0_10px_30px_rgba(15,23,42,0.05)] ring-1 ring-white lg:flex">
                 <div className="border-b border-slate-100 px-4 py-4">
                   <div className="flex items-start justify-between gap-3">
@@ -539,7 +597,7 @@ export default async function MessagesPage({ params }: Params) {
                         href={projectHref}
                         className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black text-ink-800 shadow-sm transition hover:bg-slate-50"
                       >
-                        View project
+                        View project details
                         <ExternalIcon />
                       </Link>
 
@@ -589,6 +647,7 @@ export default async function MessagesPage({ params }: Params) {
                   partnerId={params.partnerId}
                   partnerName={displayName}
                   contractorContact={contractorContact}
+                  contractorProfileCard={contractorProfileCard}
                   offers={offerRows.map((offer: any) => ({
                     id: offer.id,
                     amount: Number(offer.amount),
@@ -650,19 +709,16 @@ function AwardedBanner({
             <div className="text-xs font-black text-emerald-800">
               You won this project.
             </div>
-
             <div className="text-[11px] font-medium text-emerald-700">
-              The homeowner accepted your offer. The job becomes active after
-              checkout is completed.
+              The homeowner accepted your offer. The job becomes active after checkout is completed.
             </div>
           </div>
-
           <Link
             href="/dashboard/contractor/jobs"
             className="rounded-xl bg-emerald-600 px-3 py-2 text-[11px] font-black text-white shadow-sm transition hover:bg-emerald-700"
           >
             View accepted jobs
-          </Link>
+            </Link>
         </div>
       </div>
     );
@@ -686,23 +742,33 @@ function firstRow<T>(value: T | T[] | null | undefined): T | undefined {
 function firstPresentName(...values: Array<string | null | undefined>): string {
   for (const value of values) {
     const trimmed = value?.trim();
-
     if (trimmed) return trimmed;
   }
-
-  return '';
+  return 'Unknown';
 }
 
 function ExternalIcon() {
   return (
-    <svg
-      className="h-3.5 w-3.5"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden="true"
-    >
+    <svg className="h-3 w-3" viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path
-        d="M14 4h6v6M20 4l-9 9M20 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"
+        d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <polyline
+        points="15 3 21 3 21 9"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <line
+        x1="10"
+        y1="14"
+        x2="21"
+        y2="3"
         stroke="currentColor"
         strokeWidth="2"
         strokeLinecap="round"

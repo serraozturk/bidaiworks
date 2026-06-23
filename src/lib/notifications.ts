@@ -211,6 +211,62 @@ export async function notifyProjectCompleted(projectId: string) {
   });
 }
 
+export async function notifyContractorVerified(contractorId: string) {
+  return quietly(async () => {
+    const db = createAdminClient();
+    const { data: company } = await db
+      .from('contractor_profiles')
+      .select('company_name')
+      .eq('user_id', contractorId)
+      .maybeSingle();
+
+    return sendToUsers(db, [contractorId], {
+      subject: 'Your bidAI contractor account is verified',
+      text: [
+        `Good news${company?.company_name ? `, ${company.company_name}` : ''} — your contractor application has been approved.`,
+        '',
+        'You now have full access to matching project leads, can send offers, and chat with homeowners.',
+        '',
+        `Open your dashboard: ${APP_URL}/dashboard/contractor`,
+      ].join('\n'),
+    });
+  });
+}
+
+export async function notifyContractorRejected(
+  contractorId: string,
+  reason: string,
+  status: 'rejected' | 'suspended' = 'rejected',
+) {
+  return quietly(async () => {
+    const db = createAdminClient();
+
+    const subject =
+      status === 'suspended'
+        ? 'Your bidAI contractor account has been suspended'
+        : 'Update on your bidAI contractor application';
+
+    const text =
+      status === 'suspended'
+        ? [
+            'Your contractor account has been suspended.',
+            '',
+            `Reason: ${reason}`,
+            '',
+            'Contact support if you believe this is a mistake.',
+          ].join('\n')
+        : [
+            'Your contractor application was not approved at this time.',
+            '',
+            `Reason: ${reason}`,
+            '',
+            'If you have updated your credentials, you are welcome to re-apply from your dashboard.',
+          ].join('\n');
+
+    return sendToUsers(db, [contractorId], { subject, text });
+  });
+}
+
 export async function notifySupportReportCreated(reportId: string) {
   return quietly(async () => {
     const adminEmails = configuredAdminEmails();
@@ -491,6 +547,52 @@ async function quietly(fn: () => Promise<NotifyResult>) {
 }
 
 /**
+ * Send a formal moderation warning to a user (from admin flag action).
+ */
+export async function notifyUserModerationWarning(
+  userId: string,
+  reason: string,
+) {
+  return quietly(async () => {
+    const db = createAdminClient();
+    return sendToUsers(db, [userId], {
+      subject: 'Important notice about your bidAI account',
+      text: [
+        'This is an official notice from the bidAI moderation team.',
+        '',
+        `Reason: ${reason}`,
+        '',
+        'Please review our community guidelines and ensure all activity on the platform follows our terms of service.',
+        'Repeated violations may result in account suspension.',
+        '',
+        `Open your dashboard: ${APP_URL}/dashboard`,
+      ].join('\n'),
+    });
+  });
+}
+
+/**
+ * Notify a user that their account has been suspended via admin flag action.
+ */
+export async function notifyUserSuspended(userId: string, reason: string) {
+  return quietly(async () => {
+    const db = createAdminClient();
+    return sendToUsers(db, [userId], {
+      subject: 'Your bidAI account has been suspended',
+      text: [
+        'Your bidAI account has been suspended by our moderation team.',
+        '',
+        `Reason: ${reason}`,
+        '',
+        'If you believe this is a mistake, please contact support.',
+        '',
+        `Contact support: ${APP_URL}/dashboard/support`,
+      ].join('\n'),
+    });
+  });
+}
+
+/**
  * Notify the reporter that the bidAI support team replied on their case.
  */
 export async function notifySupportReplyFromAdmin(messageId: string) {
@@ -524,10 +626,6 @@ export async function notifySupportReplyFromAdmin(messageId: string) {
   });
 }
 
-/**
- * Notify the bidAI support inbox that a reporter added a new message
- * (either follow-up details or a reply to an admin response).
- */
 export async function notifySupportReplyFromReporter(messageId: string) {
   return quietly(async () => {
     const adminEmails = configuredAdminEmails();

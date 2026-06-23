@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { DashboardSidebar } from '@/components/DashboardSidebar';
 import { Badge } from '@/components/ui/Badge';
+
+export const dynamic = 'force-dynamic';
 import { countUnreadConversations } from '@/lib/unread';
 
 export default async function ContractorsPage() {
@@ -51,6 +53,7 @@ export default async function ContractorsPage() {
           state
         )
       `)
+      .eq('verified', true)
       .order('rating_avg', { ascending: false, nullsFirst: false })
       .limit(48),
 

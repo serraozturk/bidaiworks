@@ -386,7 +386,9 @@ export default function OfferForm({
         'quoted',
         'negotiating',
         'expired',
-        'pending_payment',
+        // NOTE: 'pending_payment' is intentionally excluded — a homeowner already
+        // in the checkout window must not have their project reset back to
+        // negotiating by a late contractor offer.
       ]);
 
     if (projectUpdateError) {
@@ -706,7 +708,7 @@ function ShieldIcon() {
         stroke="currentColor"
         strokeWidth="2"
         strokeLinejoin="round"
-      />
+           />
 
       <path
         d="m9 12 2 2 4-5"

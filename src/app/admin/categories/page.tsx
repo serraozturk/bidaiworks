@@ -41,7 +41,7 @@ export default async function AdminCategoriesPage() {
   const materialRows = (materials ?? []) as any[];
 
   return (
-    <div>
+    <div className="mx-auto max-w-[1400px] px-6 py-6">
       <AdminPageHeader
         eyebrow="Brief builder"
         title="Categories & dynamic project questions"

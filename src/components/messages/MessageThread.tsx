@@ -6,6 +6,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency, relativeTime } from '@/lib/utils';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
+import { useNotice } from '@/components/ui/Notice';
 
 interface Props {
   conversationId: string;
@@ -61,6 +63,8 @@ export default function MessageThread({
 }: Props) {
   const router = useRouter();
   const supabase = createClient();
+  const { confirm: confirmDialog, ConfirmDialogNode } = useConfirm();
+  const { notice, NoticeNode } = useNotice();
 
   const [messages, setMessages] = useState(initialMessages ?? []);
   const [offerRows, setOfferRows] = useState(offers ?? []);
@@ -259,7 +263,7 @@ export default function MessageThread({
     event.preventDefault();
 
     if (!isChatUnlocked) {
-      alert('Direct chat unlocks once the contractor commits to the job.');
+      notice('Direct chat unlocks once the contractor commits to the job.');
       return;
     }
 
@@ -305,7 +309,7 @@ export default function MessageThread({
         : raw;
 
       setText(content);
-      alert(friendly);
+      notice(friendly);
       return;
     }
 
@@ -328,34 +332,32 @@ export default function MessageThread({
     if (isCancelled) return;
 
     if (offer.status !== 'pending') {
-      alert('This offer is no longer pending.');
+      notice('This offer is no longer pending.');
       return;
     }
 
     if (offer.sender_id === currentUserId) {
-      alert('You cannot respond to your own offer.');
+      notice('You cannot respond to your own offer.');
       return;
     }
 
     if (offer.sender_role === currentUserRole) {
-      alert('You cannot respond to an offer from your own role.');
+      notice('You cannot respond to an offer from your own role.');
       return;
     }
 
     if (isLocked) {
-      alert('Negotiation is locked.');
+      notice('Negotiation is locked.');
       return;
     }
 
-    if (
-      status === 'accepted' &&
-      !confirm(
-        `Accept this offer for ${formatCurrency(
-          Number(offer.amount),
-        )}? The job becomes active only after homeowner payment.`,
-      )
-    ) {
-      return;
+    if (status === 'accepted') {
+      const ok = await confirmDialog({
+        title: `Accept offer for ${formatCurrency(Number(offer.amount))}?`,
+        message: 'The job becomes active only after homeowner payment.',
+        confirmLabel: 'Accept offer',
+      });
+      if (!ok) return;
     }
 
     setActionBusy(`${offer.id}:${status}`);
@@ -379,7 +381,7 @@ export default function MessageThread({
 
     if (reserveError) {
       setActionBusy(null);
-      alert(reserveError.message);
+      notice(reserveError.message);
       return;
     }
 
@@ -402,7 +404,7 @@ export default function MessageThread({
 
     if (messageError) {
       setActionBusy(null);
-      alert(messageError.message);
+      notice(messageError.message);
       return;
     }
 
@@ -466,7 +468,7 @@ export default function MessageThread({
 
     if (error) {
       setActionBusy(null);
-      alert(error.message);
+      notice(error.message);
       return;
     }
 
@@ -480,7 +482,7 @@ export default function MessageThread({
 
     if (messageError) {
       setActionBusy(null);
-      alert(messageError.message);
+      notice(messageError.message);
       return;
     }
 
@@ -530,22 +532,22 @@ export default function MessageThread({
     if (!parent) return;
 
     if (isLocked || isCancelled) {
-      alert('Negotiation is locked.');
+      notice('Negotiation is locked.');
       return;
     }
 
     if (parent.status !== 'pending') {
-      alert('This offer is no longer pending.');
+      notice('This offer is no longer pending.');
       return;
     }
 
     if (parent.sender_id === currentUserId) {
-      alert('You cannot counter your own offer.');
+      notice('You cannot counter your own offer.');
       return;
     }
 
     if (parent.sender_role === currentUserRole) {
-      alert('You cannot counter an offer from your own role.');
+      notice('You cannot counter an offer from your own role.');
       return;
     }
 
@@ -553,19 +555,19 @@ export default function MessageThread({
     const timelineDays = counterTimeline ? Number(counterTimeline) : null;
 
     if (!amount || amount <= 0) {
-      alert('Enter a counter offer amount.');
+      notice('Enter a counter offer amount.');
       return;
     }
 
     if (timelineDays !== null && (!timelineDays || timelineDays <= 0)) {
-      alert('Enter a valid timeline or leave it empty.');
+      notice('Enter a valid timeline or leave it empty.');
       return;
     }
 
     const targetProjectId = parent.project_id ?? projectId;
 
     if (!targetProjectId) {
-      alert('No project context.');
+      notice('No project context.');
       return;
     }
 
@@ -621,7 +623,7 @@ export default function MessageThread({
 
     if (insertError || !created) {
       setActionBusy(null);
-      alert(insertError?.message ?? 'Could not send counter offer.');
+      notice(insertError?.message ?? 'Could not send counter offer.');
       return;
     }
 
@@ -641,7 +643,7 @@ export default function MessageThread({
 
     if (closeOldPendingError) {
       setActionBusy(null);
-      alert(closeOldPendingError.message);
+      notice(closeOldPendingError.message);
       return;
     }
 
@@ -663,7 +665,7 @@ export default function MessageThread({
 
     if (messageError) {
       setActionBusy(null);
-      alert(messageError.message);
+      notice(messageError.message);
       return;
     }
 
@@ -679,7 +681,7 @@ export default function MessageThread({
 
     if (conversationUpdateError) {
       setActionBusy(null);
-      alert(conversationUpdateError.message);
+      notice(conversationUpdateError.message);
       return;
     }
 
@@ -700,7 +702,7 @@ export default function MessageThread({
 
     if (projectUpdateError) {
       setActionBusy(null);
-      alert(projectUpdateError.message);
+      notice(projectUpdateError.message);
       return;
     }
 
@@ -723,6 +725,9 @@ export default function MessageThread({
   }
 
   return (
+    <>
+    {ConfirmDialogNode}
+    {NoticeNode}
     <div className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden bg-white">
       <div className="min-h-0 flex-1 overflow-y-auto bg-[#f8fafc] px-4 py-4 sm:px-5">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
@@ -815,6 +820,7 @@ export default function MessageThread({
         </form>
       </footer>
     </div>
+    </>
   );
 }
 
@@ -1457,14 +1463,15 @@ function ChatIcon() {
       className="h-5 w-5"
       viewBox="0 0 24 24"
       fill="none"
-      aria-hidden="true"
+      stroke="currentColor"
+      strokeWidth={1.5}
     >
       <path
-        d="M21 12a8 8 0 0 1-8 8H7l-4 2 1.3-4.3A8 8 0 1 1 21 12Z"
-        stroke="currentColor"
-        strokeWidth="2"
+        strokeLinecap="round"
         strokeLinejoin="round"
+        d="M8.625 9.75a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 01.778-.332 48.294 48.294 0 005.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394A48394 00C12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z"
       />
     </svg>
   );
 }
+

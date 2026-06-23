@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/Button';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
 
 interface Props {
   offerId: string;
@@ -37,6 +38,7 @@ export default function OfferActions({
 }: Props) {
   const router = useRouter();
   const supabase = createClient();
+  const { confirm, ConfirmDialogNode } = useConfirm();
 
   const [busyAction, setBusyAction] = useState<'accept' | 'decline' | null>(
     null,
@@ -52,9 +54,11 @@ export default function OfferActions({
   const canDecline = isContractorOffer && isActionable && !isLocked;
 
   async function accept() {
-    const confirmed = confirm(
-      'Accept this offer and continue to checkout? The contractor is not booked until payment is completed.',
-    );
+    const confirmed = await confirm({
+      title: 'Accept this offer?',
+      message: 'The contractor is not booked until payment is completed.',
+      confirmLabel: 'Accept & checkout',
+    });
 
     if (!confirmed) return;
 
@@ -81,7 +85,11 @@ export default function OfferActions({
   }
 
   async function decline() {
-    const confirmed = confirm('Decline this offer?');
+    const confirmed = await confirm({
+      title: 'Decline this offer?',
+      tone: 'danger',
+      confirmLabel: 'Decline',
+    });
 
     if (!confirmed) return;
 
@@ -160,32 +168,35 @@ export default function OfferActions({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-2">
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={decline}
-          disabled={Boolean(busyAction) || !canDecline}
-        >
-          {busyAction === 'decline' ? 'Declining...' : 'Decline'}
-        </Button>
+    <>
+      {ConfirmDialogNode}
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={decline}
+            disabled={Boolean(busyAction) || !canDecline}
+          >
+            {busyAction === 'decline' ? 'Declining...' : 'Decline'}
+          </Button>
 
-        <Button
-          size="sm"
-          onClick={accept}
-          disabled={Boolean(busyAction) || !canAccept}
-        >
-          {busyAction === 'accept' ? 'Processing...' : 'Accept'}
-        </Button>
-      </div>
-
-      {error && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
-          {error}
+          <Button
+            size="sm"
+            onClick={accept}
+            disabled={Boolean(busyAction) || !canAccept}
+          >
+            {busyAction === 'accept' ? 'Processing...' : 'Accept'}
+          </Button>
         </div>
-      )}
-    </div>
+
+        {error && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-bold text-red-700">
+            {error}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
 

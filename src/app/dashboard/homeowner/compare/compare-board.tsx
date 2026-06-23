@@ -11,6 +11,8 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 import { formatCurrency, formatRange } from '@/lib/utils';
+import { useConfirm } from '@/components/ui/ConfirmDialog';
+import { useNotice } from '@/components/ui/Notice';
 
 type CompareProject = {
   id: string;
@@ -121,6 +123,9 @@ export default function CompareBoard({ projects, offers }: Props) {
     initialProjectId,
   );
 
+  const { confirm, ConfirmDialogNode } = useConfirm();
+  const { notice, NoticeNode } = useNotice();
+
   const [selectedOfferIds, setSelectedOfferIds] = useState<string[]>([]);
   const [filter, setFilter] = useState<FilterValue>('all');
   const [sort, setSort] = useState<SortValue>('price_asc');
@@ -230,7 +235,7 @@ export default function CompareBoard({ projects, offers }: Props) {
       }
 
       if (current.length >= MAX_COMPARE_OFFERS) {
-        alert(`You can compare up to ${MAX_COMPARE_OFFERS} offers at the same time.`);
+        notice(`You can compare up to ${MAX_COMPARE_OFFERS} offers at the same time.`);
         return current;
       }
 
@@ -239,11 +244,11 @@ export default function CompareBoard({ projects, offers }: Props) {
   }
 
   async function acceptOffer(offer: CompareOffer) {
-    const confirmed = confirm(
-      `Accept ${offer.company}'s offer for ${formatCurrency(
-        offer.amount,
-      )}? You will continue to checkout before the contractor is booked.`,
-    );
+    const confirmed = await confirm({
+      title: `Accept ${offer.company}'s offer for ${formatCurrency(offer.amount)}?`,
+      message: 'You will continue to checkout before the contractor is booked.',
+      confirmLabel: 'Accept & checkout',
+    });
 
     if (!confirmed) return;
 
@@ -256,7 +261,7 @@ export default function CompareBoard({ projects, offers }: Props) {
 
     if (error) {
       setBusyOfferId(null);
-      alert(error.message);
+      notice(error.message);
       return;
     }
 
@@ -287,6 +292,9 @@ export default function CompareBoard({ projects, offers }: Props) {
   }
 
   return (
+    <>
+    {ConfirmDialogNode}
+    {NoticeNode}
     <div className="grid gap-4">
       <div className="grid min-h-[610px] grid-cols-[300px_minmax(0,1fr)] gap-4">
         <section className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -503,6 +511,7 @@ export default function CompareBoard({ projects, offers }: Props) {
         </div>
       </section>
     </div>
+    </>
   );
 }
 
@@ -1240,12 +1249,9 @@ async function notifyMarketplace(
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        event,
-        payload,
-      }),
+      body: JSON.stringify({ event, ...payload }),
     });
   } catch (error) {
     console.error('Marketplace notification error:', error);
-  }
+    }
 }
