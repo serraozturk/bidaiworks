@@ -40,8 +40,8 @@ export function CookieConsent() {
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 px-4 pb-4">
-      <div className="mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-900/10 sm:flex-row sm:items-center sm:justify-between">
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-50 px-4 pb-4">
+      <div className="pointer-events-auto mx-auto flex max-w-3xl flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-lg shadow-slate-900/10 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs leading-5 text-slate-600">
           bidAI uses cookies that are necessary to sign you in and keep the
           marketplace secure. With your consent we also use optional cookies to

@@ -8,6 +8,7 @@
   --surface: 255 255 255;
   --border: 226 232 240;
   --brand: 244 81 18;
+  --brand-rgb: 244, 81, 18;
   --navy: 7 22 49;
 }
 
@@ -22,7 +23,7 @@ body {
 }
 
 ::selection {
-  background: rgba(var(--brand), 0.28);
+  background: rgba(var(--brand-rgb), 0.28);
   color: rgb(15 23 42);
 }
 
