@@ -381,7 +381,7 @@ export default function MessageThread({
 
     if (reserveError) {
       setActionBusy(null);
-      notice(reserveError.message);
+      notice('Could not reserve this offer for payment. Please try again.', 'error');
       return;
     }
 
@@ -404,7 +404,7 @@ export default function MessageThread({
 
     if (messageError) {
       setActionBusy(null);
-      notice(messageError.message);
+      notice('Offer accepted but could not update the chat. Refresh the page.', 'error');
       return;
     }
 
@@ -468,7 +468,7 @@ export default function MessageThread({
 
     if (error) {
       setActionBusy(null);
-      notice(error.message);
+      notice('Could not decline this offer. Please try again.', 'error');
       return;
     }
 
@@ -482,7 +482,7 @@ export default function MessageThread({
 
     if (messageError) {
       setActionBusy(null);
-      notice(messageError.message);
+      notice('Offer declined but could not update the chat. Refresh the page.', 'error');
       return;
     }
 
@@ -623,7 +623,7 @@ export default function MessageThread({
 
     if (insertError || !created) {
       setActionBusy(null);
-      notice(insertError?.message ?? 'Could not send counter offer.');
+      notice('Could not send counter offer. Please try again.', 'error');
       return;
     }
 
@@ -643,7 +643,7 @@ export default function MessageThread({
 
     if (closeOldPendingError) {
       setActionBusy(null);
-      notice(closeOldPendingError.message);
+      notice('Counter offer sent but could not close previous offers. Refresh the page.', 'error');
       return;
     }
 
@@ -665,7 +665,7 @@ export default function MessageThread({
 
     if (messageError) {
       setActionBusy(null);
-      notice(messageError.message);
+      notice('Counter offer sent but the chat did not update. Refresh the page.', 'error');
       return;
     }
 
@@ -681,7 +681,7 @@ export default function MessageThread({
 
     if (conversationUpdateError) {
       setActionBusy(null);
-      notice(conversationUpdateError.message);
+      notice('Counter offer sent but the conversation did not sync. Refresh the page.', 'error');
       return;
     }
 
@@ -702,7 +702,7 @@ export default function MessageThread({
 
     if (projectUpdateError) {
       setActionBusy(null);
-      notice(projectUpdateError.message);
+      notice('Counter offer sent but the project status did not update. Refresh the page.', 'error');
       return;
     }
 

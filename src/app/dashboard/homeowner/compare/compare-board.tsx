@@ -261,7 +261,7 @@ export default function CompareBoard({ projects, offers }: Props) {
 
     if (error) {
       setBusyOfferId(null);
-      notice(error.message);
+      notice('Could not accept this offer. Please try again or contact support.', 'error', '/dashboard/support');
       return;
     }
 
