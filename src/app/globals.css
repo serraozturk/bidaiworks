@@ -22,7 +22,8 @@ body {
 }
 
 ::selection {
-  background: rgba(var(--brand), 0.18);
+  background: rgba(var(--brand), 0.28);
+  color: rgb(15 23 42);
 }
 
 ::-webkit-scrollbar {

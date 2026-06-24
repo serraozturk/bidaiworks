@@ -15,11 +15,6 @@ import FlagsFilterList from './FlagsFilterList';
 
 export const dynamic = 'force-dynamic';
 
-/**
- * Unified moderation inbox: every signal that needs admin attention in
- * one place. Combines manually-stored `admin_flags` rows with live
- * computations like extreme-offer detection.
- */
 export default async function AdminFlagsPage() {
   const db = createAdminClient();
 
@@ -32,20 +27,16 @@ export default async function AdminFlagsPage() {
   ] = await Promise.all([
     db
       .from('admin_flags')
-      .select(
-        'id, kind, severity, status, project_id, offer_id, message_id, user_id, summary, detail, admin_note, created_at',
-      )
+      .select('id, kind, severity, status, project_id, offer_id, message_id, user_id, summary, detail, admin_note, created_at')
       .order('created_at', { ascending: false })
       .limit(100),
     db
       .from('offers')
-      .select(
-        'id, project_id, sender_id, sender_role, amount, status, created_at',
-      )
+      .select('id, project_id, sender_id, sender_role, amount, status, created_at')
       .in('status', ['pending', 'countered', 'accepted'])
       .order('created_at', { ascending: false })
       .limit(500),
-    db.from('projects').select('id, title, category_id, homeowner_id'),
+    db.from('projects').select('id, title, category_id, homeowner_id, status'),
     db.from('categories').select('id, name'),
     db.from('profiles').select('id, full_name, role, suspended'),
   ]);
@@ -92,6 +83,8 @@ export default async function AdminFlagsPage() {
   for (const o of offers ?? []) {
     if (alreadyFlaggedOfferIds.has(o.id)) continue;
     const project = projectById.get(o.project_id);
+    // Skip completed/cancelled projects — nothing actionable
+    if (['completed', 'cancelled'].includes(String(project?.status))) continue;
     const categoryId = project?.category_id ?? null;
     if (!categoryId) continue;
     const median = medianByCategory.get(categoryId);
@@ -115,13 +108,42 @@ export default async function AdminFlagsPage() {
   const resolvedFlags = flagRows.filter((f) => f.status !== 'open');
   const urgentOpen = openFlags.filter((f) => f.severity === 'urgent').length;
 
-  // Count flags per user for context
+  // Count flags per user (all flags, open + resolved)
   const flagCountByUser = new Map<string, number>();
   for (const f of flagRows) {
     if (f.user_id) {
       flagCountByUser.set(f.user_id, (flagCountByUser.get(f.user_id) ?? 0) + 1);
     }
   }
+
+  // Build "users with flag history" from resolved flags
+  type FlaggedUser = {
+    userId: string;
+    profile: { id: string; full_name: string | null; role: string | null; suspended: boolean | null } | undefined;
+    totalFlags: number;
+    lastFlagAt: string;
+    kinds: string[];
+  };
+  const flaggedUserMap = new Map<string, FlaggedUser>();
+  for (const f of resolvedFlags) {
+    if (!f.user_id) continue;
+    const existing = flaggedUserMap.get(f.user_id);
+    if (!existing) {
+      flaggedUserMap.set(f.user_id, {
+        userId: f.user_id,
+        profile: (profiles ?? []).find((p) => p.id === f.user_id),
+        totalFlags: flagCountByUser.get(f.user_id) ?? 1,
+        lastFlagAt: f.created_at,
+        kinds: [f.kind],
+      });
+    } else {
+      if (!existing.kinds.includes(f.kind)) existing.kinds.push(f.kind);
+      if (f.created_at > existing.lastFlagAt) existing.lastFlagAt = f.created_at;
+    }
+  }
+  const flaggedUsers = Array.from(flaggedUserMap.values()).sort(
+    (a, b) => b.totalFlags - a.totalFlags,
+  );
 
   const openFlagRows = openFlags.map((f) => {
     const target = describeTarget(f, { projectById, profileById });
@@ -152,21 +174,9 @@ export default async function AdminFlagsPage() {
       />
 
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <StatCard
-          label="Open flags"
-          value={openFlags.length}
-          tone={openFlags.length ? 'danger' : 'default'}
-        />
-        <StatCard
-          label="Urgent open"
-          value={urgentOpen}
-          tone={urgentOpen ? 'danger' : 'default'}
-        />
-        <StatCard
-          label="Extreme offers (live)"
-          value={extremeOffers.length}
-          tone={extremeOffers.length ? 'warning' : 'default'}
-        />
+        <StatCard label="Open flags" value={openFlags.length} tone={openFlags.length ? 'danger' : 'default'} />
+        <StatCard label="Urgent open" value={urgentOpen} tone={urgentOpen ? 'danger' : 'default'} />
+        <StatCard label="Extreme offers (live)" value={extremeOffers.length} tone={extremeOffers.length ? 'warning' : 'default'} />
         <StatCard label="Resolved" value={resolvedFlags.length} tone="success" />
       </div>
 
@@ -183,7 +193,7 @@ export default async function AdminFlagsPage() {
       <div className="mb-5">
         <Panel
           title="Extreme offers (live)"
-          description={`Offers >2× or <0.4× the median for their category — possible scam, typo or price gouging. Limited to 50.`}
+          description="Offers >2× or <0.4× the median for their category — possible scam, typo or price gouging. Active projects only. Limited to 50."
         >
           {extremeOffers.length === 0 ? (
             <EmptyRow>No extreme offers detected right now.</EmptyRow>
@@ -191,9 +201,7 @@ export default async function AdminFlagsPage() {
             <ul className="divide-y divide-slate-100">
               {extremeOffers.slice(0, 50).map(({ offer, median, direction, ratio }) => {
                 const project = projectById.get(offer.project_id);
-                const category = project
-                  ? categoryById.get(project.category_id)
-                  : null;
+                const category = project ? categoryById.get(project.category_id) : null;
                 const sender = profileById.get(offer.sender_id);
                 return (
                   <li key={offer.id} className="px-4 py-4">
@@ -201,20 +209,14 @@ export default async function AdminFlagsPage() {
                       <Pill value={direction === 'too_high' ? 'too high' : 'too low'} />
                       <span className="text-sm font-black text-slate-900">
                         {money(offer.amount)} ·{' '}
-                        <span className="text-orange-700">
-                          {ratio.toFixed(1)}×
-                        </span>{' '}
+                        <span className="text-orange-700">{ratio.toFixed(1)}×</span>{' '}
                         of category median ({money(median)})
                       </span>
                     </div>
-
                     <p className="mt-1 text-[11px] font-semibold text-slate-400">
-                      {project?.title ?? 'Project'} ·{' '}
-                      {category?.name ?? 'Uncategorized'} · from{' '}
-                      {sender?.full_name ?? 'user'} ({offer.sender_role}) ·{' '}
-                      {formatWhen(offer.created_at)}
+                      {project?.title ?? 'Project'} · {category?.name ?? 'Uncategorized'} · from{' '}
+                      {sender?.full_name ?? 'user'} ({offer.sender_role}) · {formatWhen(offer.created_at)}
                     </p>
-
                     <div className="mt-2 flex flex-wrap gap-2">
                       <Link
                         href={`/admin/projects/${offer.project_id}`}
@@ -225,11 +227,7 @@ export default async function AdminFlagsPage() {
                       <form action={createFlag}>
                         <input type="hidden" name="kind" value="extreme_offer" />
                         <input type="hidden" name="severity" value="high" />
-                        <input
-                          type="hidden"
-                          name="projectId"
-                          value={offer.project_id}
-                        />
+                        <input type="hidden" name="projectId" value={offer.project_id} />
                         <input type="hidden" name="offerId" value={offer.id} />
                         <input type="hidden" name="userId" value={offer.sender_id} />
                         <input
@@ -242,10 +240,7 @@ export default async function AdminFlagsPage() {
                           name="note"
                           value={`amount=${offer.amount}, median=${median}, direction=${direction}`}
                         />
-                        <AdminActionButton
-                          tone="orange"
-                          confirm="Open a tracked flag for this offer?"
-                        >
+                        <AdminActionButton tone="orange" confirm="Open a tracked flag for this offer?">
                           Open case
                         </AdminActionButton>
                       </form>
@@ -258,38 +253,85 @@ export default async function AdminFlagsPage() {
         </Panel>
       </div>
 
-      <Panel title="Resolved" description={`${resolvedFlags.length} closed`}>
-        {resolvedFlags.length === 0 ? (
-          <EmptyRow>No closed flags yet.</EmptyRow>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {resolvedFlags.slice(0, 25).map((f) => (
-              <li
-                key={f.id}
-                className="flex flex-wrap items-center justify-between gap-3 px-4 py-3"
-              >
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Pill value={f.status} />
-                    <Pill value={readable(f.kind)} />
-                    <span className="text-sm font-bold text-slate-700">
-                      {f.summary}
-                    </span>
+      <div className="mb-5">
+        <Panel title="Resolved" description={`${resolvedFlags.length} closed`}>
+          {resolvedFlags.length === 0 ? (
+            <EmptyRow>No closed flags yet.</EmptyRow>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {resolvedFlags.slice(0, 25).map((f) => (
+                <li key={f.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Pill value={f.status} />
+                      <Pill value={readable(f.kind)} />
+                      <span className="text-sm font-bold text-slate-700">{f.summary}</span>
+                    </div>
+                    {f.admin_note && (
+                      <p className="mt-1 text-[11px] text-slate-500">Note: {f.admin_note}</p>
+                    )}
                   </div>
-                  {f.admin_note && (
-                    <p className="mt-1 text-[11px] text-slate-500">
-                      Note: {f.admin_note}
+                  <span className="shrink-0 text-[11px] font-semibold text-slate-400">
+                    {formatWhen(f.created_at)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
+
+      {flaggedUsers.length > 0 && (
+        <Panel
+          title="Users with flag history"
+          description={`${flaggedUsers.length} user${flaggedUsers.length === 1 ? '' : 's'} who had at least one resolved flag — useful for spotting repeat behaviour.`}
+        >
+          <ul className="divide-y divide-slate-100">
+            {flaggedUsers.map((fu) => (
+              <li key={fu.userId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-black text-slate-600">
+                    {(fu.profile?.full_name ?? '?').charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-sm font-bold text-slate-900">
+                        {fu.profile?.full_name ?? fu.userId.slice(0, 8)}
+                      </span>
+                      {fu.profile?.role && (
+                        <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[11px] font-bold uppercase text-slate-600">
+                          {fu.profile.role}
+                        </span>
+                      )}
+                      {fu.profile?.suspended && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-black text-red-700">
+                          🚫 Suspended
+                        </span>
+                      )}
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-black text-amber-700">
+                        ⚑ {fu.totalFlags} flag{fu.totalFlags === 1 ? '' : 's'} total
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-[11px] text-slate-400">
+                      Kinds: {fu.kinds.map(readable).join(', ')} · Last flag {formatWhen(fu.lastFlagAt)}
                     </p>
-                  )}
+                  </div>
                 </div>
-                <span className="shrink-0 text-[11px] font-semibold text-slate-400">
-                  {formatWhen(f.created_at)}
-                </span>
+                <Link
+                  href={
+                    fu.profile?.role === 'contractor'
+                      ? `/admin/contractors/${fu.userId}`
+                      : `/admin/users/${fu.userId}`
+                  }
+                  className="shrink-0 text-xs font-black text-orange-600 hover:underline"
+                >
+                  View profile →
+                </Link>
               </li>
             ))}
           </ul>
-        )}
-      </Panel>
+        </Panel>
+      )}
     </div>
   );
 }
@@ -312,24 +354,15 @@ function describeTarget(
   if (f.project_id) {
     const p = ctx.projectById.get(f.project_id);
     labelParts.push(`project ${p?.title ?? f.project_id.slice(0, 8)}`);
-    links.push({
-      href: `/admin/projects/${f.project_id}`,
-      label: 'Open project',
-    });
+    links.push({ href: `/admin/projects/${f.project_id}`, label: 'Open project' });
   }
   if (f.user_id) {
     const u = ctx.profileById.get(f.user_id);
     labelParts.push(`user ${u?.full_name ?? f.user_id.slice(0, 8)}`);
     if (u?.role === 'contractor') {
-      links.push({
-        href: `/admin/contractors/${f.user_id}`,
-        label: 'Open contractor',
-      });
+      links.push({ href: `/admin/contractors/${f.user_id}`, label: 'Open contractor' });
     } else if (u?.role === 'homeowner') {
-      links.push({
-        href: `/admin/users/${f.user_id}`,
-        label: 'Open homeowner',
-      });
+      links.push({ href: `/admin/users/${f.user_id}`, label: 'Open homeowner' });
     }
   }
   if (f.message_id) {

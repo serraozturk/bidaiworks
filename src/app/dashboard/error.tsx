@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 
-export default function Error({
+export default function DashboardError({
   error,
   reset,
 }: {
@@ -10,16 +10,16 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    console.error('App error:', error);
+    console.error('Dashboard error:', error);
   }, [error]);
 
   return (
     <main className="flex min-h-[60vh] flex-col items-center justify-center px-4 text-center">
-      <div className="mb-4 text-5xl">warning</div>
       <h1 className="text-2xl font-black text-slate-900">Something went wrong</h1>
+      <p className="mt-2 text-sm text-slate-500">An unexpected error occurred on this page.</p>
 
       {error?.message && (
-        <div className="mt-3 w-full max-w-lg rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-left">
+        <div className="mt-4 w-full max-w-lg rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-left">
           <p className="text-xs font-black uppercase tracking-wide text-red-500">Error details</p>
           <p className="mt-1 break-words font-mono text-sm text-red-700">{error.message}</p>
           {error.digest && (
@@ -27,10 +27,6 @@ export default function Error({
           )}
         </div>
       )}
-
-      <p className="mt-3 max-w-sm text-sm text-slate-500">
-        Try refreshing or going back to the dashboard.
-      </p>
 
       <div className="mt-6 flex gap-3">
         <button
